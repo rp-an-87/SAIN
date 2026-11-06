@@ -3,6 +3,7 @@ using EFT;
 using EFT.Interactive;
 using SAIN.Components;
 using SAIN.Helpers;
+using SAIN.Preset.Shared.GlobalSettings;
 using UnityEngine;
 
 namespace SAIN.SAINComponent.Classes.Mover;
@@ -36,6 +37,15 @@ public class DoorOpener : BotComponentClassBase
             return false;
         }
         _interactionDoors[_interactionDoorIndex] = data;
+        // Fork: cooldown timestamps must live in _allDoors, _interactionDoors is rebuilt from it on every update.
+        for (int i = 0; i < _allDoors.Count; i++)
+        {
+            if (_allDoors[i].Id == data.Id)
+            {
+                _allDoors[i] = data;
+                break;
+            }
+        }
         Interacting = true;
         ActiveDoor = data;
         InteractionType = interactionType;
@@ -90,7 +100,9 @@ public class DoorOpener : BotComponentClassBase
         Ray ray = new() { origin = botPosition + Vector3.up, direction = moveData.CornerDirectionFromBotNormal * RAY_LENGTH };
 
         DoorDataStruct data = ActiveDoor;
-        if (!RaycastToDoors(out interactionType, ref data, out int index, RAY_LENGTH, ray, _interactionDoors))
+        // Fork: closing is opt-in. A door that is already open is left alone, otherwise the bot closes the door it just opened.
+        bool allowClose = GlobalSettingsClass.Instance.General.Doors.BotsCloseDoors;
+        if (!RaycastToDoors(out interactionType, ref data, out int index, RAY_LENGTH, ray, _interactionDoors, allowClose))
         {
             currentDoor = ActiveDoor;
             return false;
@@ -186,7 +198,8 @@ public class DoorOpener : BotComponentClassBase
         out int index,
         float RAY_LENGTH,
         Ray ray,
-        List<DoorDataStruct> doors
+        List<DoorDataStruct> doors,
+        bool allowClose
     )
     {
         const float SPHERECAST_RADIUS = 0.15f;
@@ -201,7 +214,7 @@ public class DoorOpener : BotComponentClassBase
 #if DEBUG
                 Logger.LogDebug($"Found door from hit collider [PlayerStaticDoorMask] [{hit.collider.name}]");
 #endif
-                if (data.Door.DoorState == EDoorState.Open)
+                if (allowClose && data.Door.DoorState == EDoorState.Open)
                 {
                     interactionType = EInteractionType.Close;
                     return true;
@@ -225,7 +238,7 @@ public class DoorOpener : BotComponentClassBase
 #if DEBUG
                 Logger.LogDebug($"Found door from hit collider [DoorLayer] [{hit.collider.name}]");
 #endif
-                if (data.Door.DoorState == EDoorState.Open)
+                if (allowClose && data.Door.DoorState == EDoorState.Open)
                 {
                     interactionType = EInteractionType.Close;
                     return true;
@@ -266,7 +279,7 @@ public class DoorOpener : BotComponentClassBase
                 Logger.LogDebug($"hit door  [Door.collider.Raycast]");
                 DebugGizmos.DrawLine(ray.origin, hit.point, Color.red, 0.25f, 30f, true);
 #endif
-                if (data.Door.DoorState == EDoorState.Open)
+                if (allowClose && data.Door.DoorState == EDoorState.Open)
                 {
                     interactionType = EInteractionType.Close;
                     return true;
