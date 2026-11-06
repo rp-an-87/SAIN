@@ -15,6 +15,8 @@ Personal fork of **SAIN** (Solarint's AI Modifications), 4.2.0+ line maintained 
 - `DoorOpener.cs` / `BotPathData.cs`: when a door is pulled open, the bot walks to a point outside the door's swing circle instead of the previous path corner; one path recalculation after each door interaction.
 - `BotPathData.cs`: door-interaction movement passed a world position to `SetTargetMoveDirection` where a direction is expected; now passes `target - bot position`.
 
+- `DoorOpener.cs` / `BotPathData.cs`: a bot that has made no progress for 1 s and is within 2.5 m of an open door closes that door (stuck-only last resort, independent of `Bots Close Doors`).
+
 ## AI use
 
 Changes in this fork are written with AI assistance (Claude Code). The fork is personal and not meant to be sent upstream as is.

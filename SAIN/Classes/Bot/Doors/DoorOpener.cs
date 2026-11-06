@@ -80,6 +80,46 @@ public class DoorOpener : BotComponentClassBase
         return true;
     }
 
+    private const float BLOCKING_DOOR_MAX_SQR_DIST = 2.5f * 2.5f;
+
+    /// <summary>
+    /// Fork: last resort for a bot that is stuck. Closes the nearest open door within reach, which frees a bot wedged against the open leaf.
+    /// Only called when the bot has stopped making progress, so it is not part of normal door handling.
+    /// </summary>
+    public bool TryCloseBlockingDoor(float time)
+    {
+        if (Interacting)
+        {
+            return false;
+        }
+
+        int best = -1;
+        float bestSqr = BLOCKING_DOOR_MAX_SQR_DIST;
+        for (int i = 0; i < _allDoors.Count; i++)
+        {
+            DoorDataStruct door = _allDoors[i];
+            if (door.Door == null || door.Door.DoorState != EDoorState.Open || !door.CanInteractByTime(time))
+            {
+                continue;
+            }
+            if (door.CurrentSqrMagnitude < bestSqr)
+            {
+                bestSqr = door.CurrentSqrMagnitude;
+                best = i;
+            }
+        }
+        if (best < 0)
+        {
+            return false;
+        }
+
+        // TryInteractWithDoor writes back into _interactionDoors at _interactionDoorIndex, so this door has to be its only entry.
+        _interactionDoors.Clear();
+        _interactionDoors.Add(_allDoors[best]);
+        _interactionDoorIndex = 0;
+        return TryInteractWithDoor(EInteractionType.Close, time, _interactionDoors[0]);
+    }
+
     public DoorDataStruct GetActiveDoor()
     {
         if (_interactionDoors.Count > 0 && _interactionDoorIndex < _interactionDoors.Count)
