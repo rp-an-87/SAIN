@@ -82,6 +82,28 @@
     </Reference>
   </ItemGroup>
 
+  <!-- Fork: deploy to the game. TarkovDir comes from SAIN.csproj.user (not committed). Opt out with -p:DeployToGame=false -->
+  <PropertyGroup>
+    <TarkovDir Condition="'$(TarkovDir)' == ''">C:\SPT Stuff\SPT 4160\</TarkovDir>
+  </PropertyGroup>
+  <Target Name="DeployToGameDir" AfterTargets="CopyBuildOutput" Condition="'$(DeployToGame)' != 'false'">
+    <PropertyGroup>
+      <PluginDeployDir>$(TarkovDir)BepInEx\plugins\SAIN\</PluginDeployDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(PluginDeployDir)" />
+    <!-- .orig = first DLL ever replaced, never overwritten; .bak = previous deploy. A loaded DLL can be renamed but not overwritten. -->
+    <Copy SourceFiles="$(PluginDeployDir)SAIN.dll" DestinationFiles="$(PluginDeployDir)SAIN.dll.orig"
+          Condition="Exists('$(PluginDeployDir)SAIN.dll') And !Exists('$(PluginDeployDir)SAIN.dll.orig')" />
+    <Copy SourceFiles="$(PluginDeployDir)SAIN.Preset.Shared.dll" DestinationFiles="$(PluginDeployDir)SAIN.Preset.Shared.dll.orig"
+          Condition="Exists('$(PluginDeployDir)SAIN.Preset.Shared.dll') And !Exists('$(PluginDeployDir)SAIN.Preset.Shared.dll.orig')" />
+    <Delete Files="$(PluginDeployDir)SAIN.dll.bak;$(PluginDeployDir)SAIN.Preset.Shared.dll.bak" ContinueOnError="true" />
+    <Move SourceFiles="$(PluginDeployDir)SAIN.dll" DestinationFiles="$(PluginDeployDir)SAIN.dll.bak"
+          Condition="Exists('$(PluginDeployDir)SAIN.dll')" />
+    <Move SourceFiles="$(PluginDeployDir)SAIN.Preset.Shared.dll" DestinationFiles="$(PluginDeployDir)SAIN.Preset.Shared.dll.bak"
+          Condition="Exists('$(PluginDeployDir)SAIN.Preset.Shared.dll')" />
+    <Copy SourceFiles="$(ReleaseOutputDir)SAIN.dll;$(ReleaseOutputDir)SAIN.Preset.Shared.dll" DestinationFolder="$(PluginDeployDir)" />
+  </Target>
+
   <!-- Build script-->
   <Target Name="CleanUnwantedFiles" AfterTargets="Build">
     <ItemGroup>
