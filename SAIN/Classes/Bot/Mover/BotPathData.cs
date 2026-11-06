@@ -427,7 +427,13 @@ public class BotPathDataManual(BotComponent bot, IBotPathFinder pathFinder) : IB
 
     private bool InteractWithDoor()
     {
-        if (Bot.DoorOpener.SelectDoor(out EInteractionType type, out DoorDataStruct data, this))
+        bool selected = Bot.DoorOpener.SelectDoor(out EInteractionType type, out DoorDataStruct data, this);
+        if (!selected && Bot.DoorOpener.ConsumeRecalcRequest())
+        {
+            // Fork: the interaction just ended, recalculate once so the path goes around the open door leaf.
+            PathRecalcRequested = true;
+        }
+        if (selected)
         {
             Bot.Mover.Prone.SetProne(false);
             SetSprint(false);
@@ -438,9 +444,13 @@ public class BotPathDataManual(BotComponent bot, IBotPathFinder pathFinder) : IB
             {
                 //DoorDataStruct doorData = Bot.DoorOpener.GetActiveDoor();
                 //Logger.LogDebug($"[{Bot.name}]:[{Id}]: Reverse Path");
-                Vector3 position = CurrentIndex == 0 ? StartPosition : PathCorners[CurrentIndex - 1].Position;
-                Vector3 dirNormal = (position - Bot.Position).normalized;
-                Bot.PlayerComponent.CharacterController.SetTargetMoveDirection(position, position, Bot.PlayerComponent, 0.33f, 1.33f);
+                // Fork: a pulled-open door gets a retreat point outside its swing circle, otherwise back to the previous corner as before.
+                Vector3 position = Bot.DoorOpener.HasRetreatPoint
+                    ? Bot.DoorOpener.RetreatPoint
+                    : (CurrentIndex == 0 ? StartPosition : PathCorners[CurrentIndex - 1].Position);
+                // Fork: the first argument is a direction, upstream passed the world position itself.
+                Vector3 direction = position - Bot.Position;
+                Bot.PlayerComponent.CharacterController.SetTargetMoveDirection(direction, position, Bot.PlayerComponent, 0.33f, 1.33f);
                 return true;
             }
         }

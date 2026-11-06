@@ -5,6 +5,7 @@ using SAIN.Components;
 using SAIN.Helpers;
 using SAIN.Preset.Shared.GlobalSettings;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace SAIN.SAINComponent.Classes.Mover;
 
@@ -13,6 +14,25 @@ public class DoorOpener : BotComponentClassBase
     public bool Interacting { get; private set; }
 
     public EInteractionType InteractionType { get; private set; }
+
+    /// <summary>
+    /// Fork: set when a pulled-open door will swing into the bot. The bot walks here (outside the swing circle) during the interaction.
+    /// </summary>
+    public bool HasRetreatPoint { get; private set; }
+
+    public Vector3 RetreatPoint { get; private set; }
+
+    /// <summary>
+    /// Fork: true once after an interaction ends, so the path can be recalculated around the now-open door.
+    /// </summary>
+    public bool ConsumeRecalcRequest()
+    {
+        bool value = _recalcAfterDoor;
+        _recalcAfterDoor = false;
+        return value;
+    }
+
+    private bool _recalcAfterDoor;
 
     public DoorOpener(BotComponent sain)
         : base(sain)
@@ -49,6 +69,12 @@ public class DoorOpener : BotComponentClassBase
         Interacting = true;
         ActiveDoor = data;
         InteractionType = interactionType;
+        HasRetreatPoint = false;
+        if (interactionType == EInteractionType.Open && IsDoorPullOpen(data, Bot.NavMeshPosition))
+        {
+            HasRetreatPoint = TryGetRetreatPoint(data, out Vector3 retreat);
+            RetreatPoint = retreat;
+        }
         _doorInteractionEndTime = time + (IsDoorPullOpen(data, Bot.NavMeshPosition) ? 1.25f : 1f);
         Bot.Player.MovementContext.IgnoreInteractionCollision(data.Door.Collider, true);
         return true;
@@ -74,6 +100,7 @@ public class DoorOpener : BotComponentClassBase
             if (_doorInteractionEndTime < time)
             {
                 Clear();
+                _recalcAfterDoor = true;
 
                 interactionType = EInteractionType.Open; // Default to open if interaction is done
                 currentDoor = default;
@@ -122,6 +149,54 @@ public class DoorOpener : BotComponentClassBase
         ActiveDoor = new();
         _doorInteractionEndTime = 0;
         InteractionType = EInteractionType.Open;
+        HasRetreatPoint = false;
+    }
+
+    private const float RETREAT_MARGIN = 0.4f;
+    private const float RETREAT_MAX_DIST = 2.5f;
+
+    /// <summary>
+    /// A door swings around its hinge, so the area it sweeps is a circle with the leaf length as radius.
+    /// Finds a point just outside that circle, in the direction away from the hinge. Runs once per door interaction.
+    /// </summary>
+    private bool TryGetRetreatPoint(DoorDataStruct data, out Vector3 point)
+    {
+        point = default;
+        NavMeshDoorLink link = data.Link;
+        Vector3 close1 = link.Close1;
+        Vector3 close2 = link.Close2_Normal;
+        // The hinge is the end of the closed leaf that sits next to an end of the open leaf.
+        float sqr1 = Mathf.Min(FlatSqrDist(close1, link.Open1), FlatSqrDist(close1, link.Open2));
+        float sqr2 = Mathf.Min(FlatSqrDist(close2, link.Open1), FlatSqrDist(close2, link.Open2));
+        Vector3 hinge = sqr1 <= sqr2 ? close1 : close2;
+        Vector3 leafEnd = sqr1 <= sqr2 ? close2 : close1;
+        float leafLength = Mathf.Sqrt(FlatSqrDist(hinge, leafEnd));
+
+        Vector3 botPosition = Bot.NavMeshPosition;
+        Vector3 away = botPosition - hinge;
+        away.y = 0f;
+        float distance = away.magnitude;
+        float needed = leafLength + RETREAT_MARGIN;
+        if (distance < 0.01f || distance >= needed)
+        {
+            return false;
+        }
+
+        float move = Mathf.Min(needed - distance, RETREAT_MAX_DIST);
+        Vector3 target = botPosition + (away / distance) * move;
+        if (!NavMesh.SamplePosition(target, out NavMeshHit hit, 0.75f, NavMesh.AllAreas))
+        {
+            return false;
+        }
+        point = hit.position;
+        return true;
+    }
+
+    private static float FlatSqrDist(Vector3 a, Vector3 b)
+    {
+        float x = a.x - b.x;
+        float z = a.z - b.z;
+        return (x * x) + (z * z);
     }
 
     private int _interactionDoorIndex;
