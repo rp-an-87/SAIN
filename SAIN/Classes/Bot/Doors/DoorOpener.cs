@@ -75,7 +75,20 @@ public class DoorOpener : BotComponentClassBase
             HasRetreatPoint = TryGetRetreatPoint(data, out Vector3 retreat);
             RetreatPoint = retreat;
         }
-        _doorInteractionEndTime = time + (IsDoorPullOpen(data, Bot.NavMeshPosition) ? 1.25f : 1f);
+        bool pull = IsDoorPullOpen(data, Bot.NavMeshPosition);
+        float duration = pull ? 1.25f : 1f;
+        if (HasRetreatPoint)
+        {
+            // Fork: stay in the interaction until the bot has had time to walk out of the swing circle.
+            Vector3 toRetreat = RetreatPoint - Bot.Position;
+            toRetreat.y = 0f;
+            duration = Mathf.Clamp((toRetreat.magnitude / RETREAT_WALK_SPEED) + 0.5f, duration, RETREAT_MAX_TIME);
+        }
+        _doorInteractionEndTime = time + duration;
+        Logger.LogInfo(
+            $"[DoorFork] {Bot.name} door:{data.Door.Id} {interactionType} pull:{pull} retreat:{HasRetreatPoint} "
+                + $"leaf:{(pull ? _dbgLeafLength : 0f):0.00} hingeDist:{(pull ? _dbgHingeDistance : 0f):0.00} hold:{duration:0.00}"
+        );
         Bot.Player.MovementContext.IgnoreInteractionCollision(data.Door.Collider, true);
         return true;
     }
@@ -117,6 +130,7 @@ public class DoorOpener : BotComponentClassBase
         _interactionDoors.Clear();
         _interactionDoors.Add(_allDoors[best]);
         _interactionDoorIndex = 0;
+        Logger.LogInfo($"[DoorFork] {Bot.name} stuck near open door:{_interactionDoors[0].Id}, closing it");
         return TryInteractWithDoor(EInteractionType.Close, time, _interactionDoors[0]);
     }
 
@@ -192,8 +206,12 @@ public class DoorOpener : BotComponentClassBase
         HasRetreatPoint = false;
     }
 
-    private const float RETREAT_MARGIN = 0.4f;
-    private const float RETREAT_MAX_DIST = 2.5f;
+    private const float RETREAT_MARGIN = 0.7f;
+    private const float RETREAT_MAX_DIST = 3f;
+    private const float RETREAT_WALK_SPEED = 1f; // m/s, deliberately low: backing up is slower than walking forward
+    private const float RETREAT_MAX_TIME = 3f;
+    private float _dbgLeafLength;
+    private float _dbgHingeDistance;
 
     /// <summary>
     /// A door swings around its hinge, so the area it sweeps is a circle with the leaf length as radius.
@@ -216,6 +234,8 @@ public class DoorOpener : BotComponentClassBase
         Vector3 away = botPosition - hinge;
         away.y = 0f;
         float distance = away.magnitude;
+        _dbgLeafLength = leafLength;
+        _dbgHingeDistance = distance;
         float needed = leafLength + RETREAT_MARGIN;
         if (distance < 0.01f || distance >= needed)
         {

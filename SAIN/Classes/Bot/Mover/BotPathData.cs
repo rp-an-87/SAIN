@@ -451,7 +451,8 @@ public class BotPathDataManual(BotComponent bot, IBotPathFinder pathFinder) : IB
                     : (CurrentIndex == 0 ? StartPosition : PathCorners[CurrentIndex - 1].Position);
                 // Fork: the first argument is a direction, upstream passed the world position itself.
                 Vector3 direction = position - Bot.Position;
-                Bot.PlayerComponent.CharacterController.SetTargetMoveDirection(direction, position, Bot.PlayerComponent, 0.33f, 1.33f);
+                float startSlowDist = Bot.DoorOpener.HasRetreatPoint ? 0.1f : 0.33f;
+                Bot.PlayerComponent.CharacterController.SetTargetMoveDirection(direction, position, Bot.PlayerComponent, startSlowDist, 1.33f);
                 return true;
             }
         }
