@@ -17,6 +17,8 @@ Personal fork of **SAIN** (Solarint's AI Modifications), 4.2.0+ line maintained 
 
 - `DoorOpener.cs` / `BotPathData.cs`: a bot that has made no progress for 1 s and is within 2.5 m of an open door closes that door (stuck-only last resort, independent of `Bots Close Doors`).
 
+- `References\` is no longer tracked in this fork (git-ignored). It holds game and third-party assemblies that upstream bundles; this fork does not redistribute them. To build, copy `References\` from the upstream repo at `v4.5.1` (`git show upstream/master:References/...` or a checkout of the tag) into the repo root; the files are used for compilation only.
+
 ## AI use
 
 Changes in this fork are written with AI assistance (Claude Code). The fork is personal and not meant to be sent upstream as is.

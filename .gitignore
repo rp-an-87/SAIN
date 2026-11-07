@@ -371,3 +371,6 @@ ServerMod/dist
 
 # Build files
 Build/
+
+# Fork: game and third-party assemblies used only to compile, never published. Copy them in locally (see FORK_NOTICE.md).
+/References/
