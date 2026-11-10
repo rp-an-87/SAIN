@@ -28,11 +28,4 @@ public class DoorSettings : SAINSettingsBase<DoorSettings>, ISAINSettings
     [Name("Disable All Doors")]
     [Description("Doors are hard, just turn them all off. Only targets doors that can be open/closed normally.")]
     public bool DisableAllDoors = false;
-
-    [DataMember]
-    [Name("Bots Close Doors")]
-    [Description(
-        "Bots close doors that are already open when one is in their way. Off by default: bots then leave open doors alone instead of closing the door they just opened."
-    )]
-    public bool BotsCloseDoors = false;
 }

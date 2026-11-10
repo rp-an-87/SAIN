@@ -4,6 +4,7 @@ using EFT.Interactive;
 using SAIN.Components;
 using SAIN.Helpers;
 using SAIN.Preset.Shared.GlobalSettings;
+using SAIN.Preset.Shared.GlobalSettings.Categories;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -70,7 +71,8 @@ public class DoorOpener : BotComponentClassBase
         ActiveDoor = data;
         InteractionType = interactionType;
         HasRetreatPoint = false;
-        if (interactionType == EInteractionType.Open && IsDoorPullOpen(data, Bot.NavMeshPosition))
+        ForkSettings fork = GlobalSettingsClass.Instance.Fork;
+        if (fork.DoorRetreatEnabled && interactionType == EInteractionType.Open && IsDoorPullOpen(data, Bot.NavMeshPosition))
         {
             HasRetreatPoint = TryGetRetreatPoint(data, out Vector3 retreat);
             RetreatPoint = retreat;
@@ -82,7 +84,7 @@ public class DoorOpener : BotComponentClassBase
             // Fork: stay in the interaction until the bot has had time to walk out of the swing circle.
             Vector3 toRetreat = RetreatPoint - Bot.Position;
             toRetreat.y = 0f;
-            duration = Mathf.Clamp((toRetreat.magnitude / RETREAT_WALK_SPEED) + 0.5f, duration, RETREAT_MAX_TIME);
+            duration = Mathf.Clamp((toRetreat.magnitude / Mathf.Max(0.05f, fork.DoorRetreatSpeed)) + 0.5f, duration, fork.DoorInteractionMaxTime);
         }
         _doorInteractionEndTime = time + duration;
         Logger.LogInfo(
@@ -92,8 +94,6 @@ public class DoorOpener : BotComponentClassBase
         Bot.Player.MovementContext.IgnoreInteractionCollision(data.Door.Collider, true);
         return true;
     }
-
-    private const float BLOCKING_DOOR_MAX_SQR_DIST = 2.5f * 2.5f;
 
     /// <summary>
     /// Fork: last resort for a bot that is stuck. Closes the nearest open door within reach, which frees a bot wedged against the open leaf.
@@ -105,9 +105,14 @@ public class DoorOpener : BotComponentClassBase
         {
             return false;
         }
+        ForkSettings fork = GlobalSettingsClass.Instance.Fork;
+        if (!fork.StuckCloseDoor)
+        {
+            return false;
+        }
 
         int best = -1;
-        float bestSqr = BLOCKING_DOOR_MAX_SQR_DIST;
+        float bestSqr = fork.StuckCloseDoorRange * fork.StuckCloseDoorRange;
         for (int i = 0; i < _allDoors.Count; i++)
         {
             DoorDataStruct door = _allDoors[i];
@@ -182,7 +187,7 @@ public class DoorOpener : BotComponentClassBase
 
         DoorDataStruct data = ActiveDoor;
         // Fork: closing is opt-in. A door that is already open is left alone, otherwise the bot closes the door it just opened.
-        bool allowClose = GlobalSettingsClass.Instance.General.Doors.BotsCloseDoors;
+        bool allowClose = GlobalSettingsClass.Instance.Fork.BotsCloseDoors;
         if (!RaycastToDoors(out interactionType, ref data, out int index, RAY_LENGTH, ray, _interactionDoors, allowClose))
         {
             currentDoor = ActiveDoor;
@@ -206,10 +211,6 @@ public class DoorOpener : BotComponentClassBase
         HasRetreatPoint = false;
     }
 
-    private const float RETREAT_MARGIN = 0.7f;
-    private const float RETREAT_MAX_DIST = 3f;
-    private const float RETREAT_WALK_SPEED = 1f; // m/s, deliberately low: backing up is slower than walking forward
-    private const float RETREAT_MAX_TIME = 3f;
     private float _dbgLeafLength;
     private float _dbgHingeDistance;
 
@@ -236,13 +237,14 @@ public class DoorOpener : BotComponentClassBase
         float distance = away.magnitude;
         _dbgLeafLength = leafLength;
         _dbgHingeDistance = distance;
-        float needed = leafLength + RETREAT_MARGIN;
+        ForkSettings fork = GlobalSettingsClass.Instance.Fork;
+        float needed = leafLength + fork.DoorRetreatMargin;
         if (distance < 0.01f || distance >= needed)
         {
             return false;
         }
 
-        float move = Mathf.Min(needed - distance, RETREAT_MAX_DIST);
+        float move = Mathf.Min(needed - distance, fork.DoorRetreatMaxDistance);
         Vector3 target = botPosition + (away / distance) * move;
         if (!NavMesh.SamplePosition(target, out NavMeshHit hit, 0.75f, NavMesh.AllAreas))
         {

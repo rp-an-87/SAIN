@@ -280,7 +280,6 @@ public class BotPathDataManual(BotComponent bot, IBotPathFinder pathFinder) : IB
         Status = EBotMoveStatus.ReadyToMove;
     }
 
-    private const float DOOR_STUCK_CLOSE_TIME = 1f;
     private float _lastCheckStuckTime;
     private float _timeNotMoving;
     private CornerMoveData _lastCheckedMoveData;
@@ -526,12 +525,15 @@ public class BotPathDataManual(BotComponent bot, IBotPathFinder pathFinder) : IB
             if (_timeNotMoving > 0f)
             {
                 // Fork: stuck next to an open door (usually wedged against the leaf): close it, then the bot walks through the normal open routine.
-                if (Time.time - _timeNotMoving > DOOR_STUCK_CLOSE_TIME && Bot.DoorOpener.TryCloseBlockingDoor(Time.time))
+                bool objectInWay = CheckObjectInWay(BotPosition(), CurrentCornerMoveData.CornerDirectionFromBot, 1f, 0.2f, 1f);
+                // The object in the way is often the open leaf itself, and its recalc resets _timeNotMoving, so the door must be tried first without waiting.
+                if ((objectInWay || Time.time - _timeNotMoving > GlobalSettingsClass.Instance.Fork.StuckCloseDoorDelay) && Bot.DoorOpener.TryCloseBlockingDoor(Time.time))
                 {
                     return true;
                 }
-                if (CheckObjectInWay(BotPosition(), CurrentCornerMoveData.CornerDirectionFromBot, 1f, 0.2f, 1f))
+                if (objectInWay)
                 {
+                    Logger.LogInfo($"[DoorFork] {Bot.name} stuck, object in way, no open door in reach, recalculating path");
                     //Logger.LogDebug($"[{Bot.name}]:[{Id}]: recalc from object in way: " +
                     //    $"{currentMoveData.CornerDirectionFromBot}:" +
                     //    $"{currentMoveData.CornerDirectionFromBotNormal}:" +

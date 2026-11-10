@@ -104,7 +104,7 @@ public class SAINBotSuppressClass : BotComponentClassBase
     public bool TrySuppressAnyEnemy(
         Enemy priorityEnemy,
         EnemyList knownEnemies,
-        float minimumAmmoRatio = 0.33f,
+        float minimumAmmoRatio = -1f,
         int minimumBullets = 2,
         bool withBehaviorChecks = true
     )
@@ -129,6 +129,7 @@ public class SAINBotSuppressClass : BotComponentClassBase
         }
         if (Bot.Decision.CurrentSelfDecision == ESelfActionType.Reload)
         {
+            _suppressAmmoCutoff = -1f;
             if (SuppressingTarget)
             {
                 ResetSuppressing();
@@ -153,6 +154,15 @@ public class SAINBotSuppressClass : BotComponentClassBase
         }
 
         float ratio = CalcAmmoRatio(BotOwner, out int currentAmmo);
+        if (ratio >= 0.9f)
+        {
+            // fresh magazine, roll a new stop point for this one
+            _suppressAmmoCutoff = -1f;
+        }
+        if (minimumAmmoRatio < 0f)
+        {
+            minimumAmmoRatio = getSuppressAmmoCutoff();
+        }
         bool ammoGoodForSupp = ratio >= minimumAmmoRatio && currentAmmo >= minimumBullets;
         if (!ammoGoodForSupp)
         {
@@ -212,6 +222,24 @@ public class SAINBotSuppressClass : BotComponentClassBase
     }
 
     private const float CHANGE_SUPP_TARGET_FREQ = 0.5f;
+
+    // Each magazine the bot stops suppressing at a different ammo level, so silence does not reliably mean "reloading".
+    private float _suppressAmmoCutoff = -1f;
+
+    private float getSuppressAmmoCutoff()
+    {
+        if (!GlobalSettingsClass.Instance.Fork.RandomSuppressCutoff)
+        {
+            return GlobalSettingsClass.Instance.Fork.FixedSuppressCutoff;
+        }
+        if (_suppressAmmoCutoff < 0f)
+        {
+            float min = GlobalSettingsClass.Instance.Fork.SuppressCutoffMin;
+            float max = GlobalSettingsClass.Instance.Fork.SuppressCutoffMax;
+            _suppressAmmoCutoff = UnityEngine.Random.Range(Mathf.Min(min, max), Mathf.Max(min, max));
+        }
+        return _suppressAmmoCutoff;
+    }
     private float _nextChangeSuppTargetTime;
 
     public static float CalcAmmoRatio(BotOwner botowner, out int currentAmmoCount)

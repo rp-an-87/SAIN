@@ -42,6 +42,7 @@ public class SelfActionDecisionClass : BotBase
         if (CheckDoReload(enemy, Bot))
         {
             //botOwner.ShootData.BlockFor(1.0f);
+            Bot.Cover.TryRelocateForReload(enemy);
             Decision = ESelfActionType.Reload;
             return true;
         }

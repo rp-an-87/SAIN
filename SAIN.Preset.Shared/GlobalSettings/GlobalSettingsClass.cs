@@ -67,6 +67,10 @@ public class GlobalSettingsClass : SettingsGroupBase<GlobalSettingsClass>
     [Name("Power Level Calculation")]
     public PowerCalcSettings PowerCalc = new();
 
+    [DataMember]
+    [Name("Fork Tweaks")]
+    public ForkSettings Fork = new();
+
     public override void InitList()
     {
         SettingsList.Clear();
@@ -84,5 +88,6 @@ public class GlobalSettingsClass : SettingsGroupBase<GlobalSettingsClass>
         SquadTalk.Init(SettingsList);
         PowerCalc.Init(SettingsList);
         Steering.Init(SettingsList);
+        Fork.Init(SettingsList);
     }
 }

@@ -8,6 +8,7 @@ using SAIN.Helpers;
 using SAIN.Models.Enums;
 using SAIN.Preset.Shared.Enums;
 using SAIN.Preset.Shared.GlobalSettings;
+using SAIN.Preset.Shared.GlobalSettings.Categories;
 using SAIN.SAINComponent.Classes.EnemyClasses;
 using SAIN.SAINComponent.SubComponents.CoverFinder;
 using UnityEngine;
@@ -99,6 +100,7 @@ public class SAINCoverClass : BotComponentClassBase
         {
             return null;
         }
+        filterForReloadRelocation();
 
         _coverPoints.Sort((x, y) => x.PathData.PathLength.CompareTo(y.PathData.PathLength));
         for (int i = 0; i < _coverPoints.Count; i++)
@@ -111,6 +113,91 @@ public class SAINCoverClass : BotComponentClassBase
         }
         //Logger.LogWarning($"[{Bot.name}] No Cover Point found, even though there are {_coverPoints.Count} cover points available.");
         return null;
+    }
+
+    private const float RELOAD_RELOCATE_ACTIVE_TIME = 10f;
+
+    private CoverPoint _relocateAvoidPoint;
+    private Vector3 _relocateEnemyPos;
+    private float _relocateMinEnemyDist;
+    private float _relocateUntil;
+    private float _nextRelocateTime;
+    private readonly List<CoverPoint> _relocateTemp = [];
+
+    /// <summary>
+    /// Called when a bot starts reloading. In close quarters the enemy knows where the bot was shooting from, so reloading
+    /// there is a free push for the player. Drop the current cover and pick one further from the enemy's last known position.
+    /// </summary>
+    public bool TryRelocateForReload(Enemy enemy)
+    {
+        ForkSettings fork = GlobalSettingsClass.Instance.Fork;
+        if (!fork.RelocateEnabled || CoverInUse == null || enemy == null || _nextRelocateTime > Time.time)
+        {
+            return false;
+        }
+        Vector3? lastKnown = enemy.LastKnownPosition;
+        if (lastKnown == null || enemy.IsVisible || enemy.RealDistance > fork.RelocateMaxEnemyDistance)
+        {
+            return false;
+        }
+        bool recent = enemy.Seen && enemy.TimeSinceSeen <= fork.RelocateMaxTimeSinceSeen;
+        if (!recent && !enemy.Status.ShotAtMe)
+        {
+            return false;
+        }
+        _nextRelocateTime = Time.time + fork.RelocateCooldown;
+        if (UnityEngine.Random.value > fork.RelocateChance)
+        {
+            return false;
+        }
+
+        _relocateAvoidPoint = CoverInUse;
+        _relocateEnemyPos = lastKnown.Value;
+        _relocateMinEnemyDist = Vector3.Distance(Bot.Position, _relocateEnemyPos);
+        _relocateUntil = Time.time + RELOAD_RELOCATE_ACTIVE_TIME;
+        CoverInUse = null;
+        CoverPoint_MovingTo = null;
+        _timeLastUpdate = 0f;
+        return true;
+    }
+
+    private void filterForReloadRelocation()
+    {
+        if (_relocateAvoidPoint == null)
+        {
+            return;
+        }
+        if (_relocateUntil < Time.time)
+        {
+            _relocateAvoidPoint = null;
+            return;
+        }
+        _relocateTemp.Clear();
+        Vector3 oldPos = _relocateAvoidPoint.Position;
+        float minFromOld = GlobalSettingsClass.Instance.Fork.RelocateMinDistanceFromOldCover;
+        foreach (CoverPoint point in _coverPoints)
+        {
+            if (point == _relocateAvoidPoint)
+            {
+                continue;
+            }
+            Vector3 pos = point.Position;
+            if ((pos - oldPos).sqrMagnitude < minFromOld * minFromOld)
+            {
+                continue;
+            }
+            if (Vector3.Distance(pos, _relocateEnemyPos) < _relocateMinEnemyDist)
+            {
+                continue;
+            }
+            _relocateTemp.Add(point);
+        }
+        // nothing suitable: fall back to normal cover selection
+        if (_relocateTemp.Count > 0)
+        {
+            _coverPoints.Clear();
+            _coverPoints.AddRange(_relocateTemp);
+        }
     }
 
     /// <summary>

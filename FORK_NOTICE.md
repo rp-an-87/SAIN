@@ -17,6 +17,8 @@ Personal fork of **SAIN** (Solarint's AI Modifications), 4.2.0+ line maintained 
 
 - `DoorOpener.cs` / `BotPathData.cs`: a bot that has made no progress for 1 s and is within 2.5 m of an open door closes that door (stuck-only last resort, independent of `Bots Close Doors`).
 
+- `ForkSettings.cs` (F6: Global Settings > Fork Tweaks, saved in the preset): all fork-only settings. Reload: random suppress cutoff per magazine (`SAINBotSuppressClass.cs`), bots relocate to different cover when they start a reload in close quarters (`SAINCoverClass.cs`, `SelfActionDecisionClass.cs`). Doors: `Bots Close Doors` moved here from `DoorSettings`, plus switches and values for the stuck-close, swing retreat and interaction time. The SAIN server mod must run the matching `SAIN.Preset.Shared.dll`, otherwise it drops these keys when it saves the preset.
+
 - `References\` is no longer tracked in this fork (git-ignored). It holds game and third-party assemblies that upstream bundles; this fork does not redistribute them. To build, copy `References\` from the upstream repo at `v4.5.1` (`git show upstream/master:References/...` or a checkout of the tag) into the repo root; the files are used for compilation only.
 
 ## AI use
