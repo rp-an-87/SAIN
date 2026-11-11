@@ -58,7 +58,13 @@ public class HearingSensor : BotComponentClassBase
         }
 
         Vector3 EstimatedPosition = HearingDispersion.CalcRandomizedPosition(sound, 1f);
+        // Fork: a shot from an enemy the bot cannot see only gives a vague position, and rolls a reaction.
+        EstimatedPosition = Bot.ShotReaction.DegradePosition(sound.Enemy, EstimatedPosition, sound.PlayerDistance, false);
         ReactToBulletFlyBy(sound, FlyByDistance, EstimatedPosition, underFire);
+        if (underFire)
+        {
+            Bot.ShotReaction.OnShot(sound.Enemy, sound.PlayerDistance, false);
+        }
         OnEnemySoundHeard?.Invoke(sound, sound.Enemy);
     }
 
@@ -72,6 +78,11 @@ public class HearingSensor : BotComponentClassBase
                 return;
             }
             EstimatedPosition = HearingDispersion.CalcRandomizedPosition(sound, 1f);
+            if (sound.IsGunShot)
+            {
+                // Fork: gunfire from an enemy the bot cannot see only gives a vague position.
+                EstimatedPosition = Bot.ShotReaction.DegradePosition(sound.Enemy, EstimatedPosition, sound.PlayerDistance, false);
+            }
             Bot.Squad.SquadInfo?.AddPointToSearch(sound.Enemy, EstimatedPosition, sound, Bot);
             OnEnemySoundHeard?.Invoke(sound, sound.Enemy);
         }

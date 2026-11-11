@@ -147,6 +147,11 @@ public class BotWeaponInfoClass : BotBase
 
     public float EffectiveWeaponDistance
     {
+        get { return ClassWeaponDistance * SightReachMultiplier; }
+    }
+
+    private float ClassWeaponDistance
+    {
         get
         {
             if (Caliber == Calibers.Caliber9x39)
@@ -159,6 +164,91 @@ public class BotWeaponInfoClass : BotBase
             }
             return 125f;
         }
+    }
+
+    /// <summary>
+    /// Fork: multiplier from the weapon's sights and scope zoom. 1 when the fork's range behavior is off for this bot.
+    /// </summary>
+    public float SightReachMultiplier
+    {
+        get
+        {
+            ForkSettings fork = GlobalSettings.Fork;
+            if (!fork.SightReachEnabled || !Bot.Info.Profile.RangeEnabled)
+            {
+                return 1f;
+            }
+            WeaponInfo weaponInfo = Bot.PlayerComponent?.Equipment?.CurrentWeaponInfo;
+            return weaponInfo != null ? weaponInfo.GetSightReachFactor(fork) : 1f;
+        }
+    }
+
+    /// <summary>
+    /// Fork: false if the enemy is too far away for this bot to aim and fire at it (reach times Shoot Reach Factor).
+    /// Always true when the fork's range behavior is off for this bot.
+    /// </summary>
+    public bool IsWithinShootReach(float enemyDistance)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (fork.ShootReachFactor <= 0f || !Bot.Info.Profile.RangeEnabled)
+        {
+            return true;
+        }
+        return enemyDistance <= EffectiveWeaponDistance * fork.ShootReachFactor || IsInOverReachWindow(enemyDistance);
+    }
+
+    /// <summary>
+    /// Fork: beyond its shooting reach a bot may still fire. A roll once per interval, with a chance that falls linearly with distance
+    /// from Shoot Reach Factor to Over-Reach Limit Factor (times reach), opens a short window in which it may aim and fire.
+    /// </summary>
+    public bool IsInOverReachWindow(float enemyDistance)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (!fork.OverReachEnabled || fork.ShootReachFactor <= 0f || !Bot.Info.Profile.RangeEnabled)
+        {
+            return false;
+        }
+        float reach = EffectiveWeaponDistance;
+        float start = reach * fork.ShootReachFactor;
+        float end = reach * Mathf.Max(fork.OverReachLimitFactor, fork.ShootReachFactor + 0.01f);
+        if (enemyDistance <= start || enemyDistance >= end)
+        {
+            return false;
+        }
+        float now = Time.time;
+        if (now < _overReachWindowEnd)
+        {
+            return true;
+        }
+        if (now < _nextOverReachRollTime)
+        {
+            return false;
+        }
+        _nextOverReachRollTime = now + (fork.OverReachRollInterval * UnityEngine.Random.Range(0.8f, 1.2f));
+        float chance = fork.OverReachChance * (1f - ((enemyDistance - start) / (end - start)));
+        if (UnityEngine.Random.value < chance)
+        {
+            _overReachWindowEnd = now + (fork.OverReachWindow * UnityEngine.Random.Range(0.67f, 1.33f));
+            return true;
+        }
+        return false;
+    }
+
+    private float _overReachWindowEnd;
+    private float _nextOverReachRollTime;
+
+    /// <summary>
+    /// Fork: false if the enemy is too far away for this bot to fire suppressing bursts at its last known position.
+    /// Always true when the fork's range behavior is off for this bot.
+    /// </summary>
+    public bool IsWithinSuppressReach(float enemyDistance)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (!fork.SuppressLimitEnabled || !Bot.Info.Profile.RangeEnabled)
+        {
+            return true;
+        }
+        return enemyDistance <= EffectiveWeaponDistance * fork.SuppressReachFraction;
     }
 
     public bool IsFireModeSet(EFireMode mode)

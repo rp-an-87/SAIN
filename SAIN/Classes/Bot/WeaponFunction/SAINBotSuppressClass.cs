@@ -280,6 +280,10 @@ public class SAINBotSuppressClass : BotComponentClassBase
     {
         if (Enemy != null && !Enemy.IsZombie && !Enemy.IsVisible)
         {
+            if (!Bot.Info.WeaponInfo.IsWithinSuppressReach(Enemy.RealDistance) || !Bot.ShotReaction.AllowsSuppress(Enemy))
+            {
+                return false;
+            }
             if (withBehaviorChecks && !CanSuppressEnemy(Enemy))
             {
                 return false;

@@ -62,6 +62,9 @@ internal class CombatSoloLayer(BotOwner bot, int priority) : SAINLayer(bot, prio
             case ECombatDecision.Search:
                 return new Action(typeof(SearchAction), $"{_lastDecision}");
 
+            case ECombatDecision.Relocate:
+                return new Action(typeof(RelocateAction), $"{_lastDecision}");
+
             case ECombatDecision.Freeze:
                 return new Action(typeof(FreezeAction), $"{_lastDecision}");
 

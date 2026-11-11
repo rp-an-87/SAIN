@@ -7,6 +7,8 @@ using SAIN.Helpers;
 using SAIN.Plugin;
 using SAIN.Preset;
 using SAIN.Preset.Shared.Enums;
+using SAIN.Preset.Shared.GlobalSettings.Categories;
+using UnityEngine;
 
 namespace SAIN.SAINComponent.Classes.Info;
 
@@ -56,6 +58,46 @@ public class WeaponInfo
     public Mod Suppressor { get; private set; }
     public Mod RedDot { get; private set; }
     public Mod Optic { get; private set; }
+
+    /// <summary>Highest zoom of the mounted optic (1 = no magnification), 0 if there is no optic.</summary>
+    public float OpticZoom { get; private set; }
+
+    /// <summary>
+    /// Multiplier for the weapon-class reach, from the sights: iron sights, then red dot, then optic (rising with zoom).
+    /// </summary>
+    public float GetSightReachFactor(ForkSettings fork)
+    {
+        if (HasOptic)
+        {
+            float zoom = Mathf.Max(OpticZoom, 1f);
+            float factor = fork.OpticReachAt1x + (zoom - 1f) * fork.OpticReachPerZoom;
+            return Mathf.Min(factor, fork.OpticReachMax);
+        }
+        if (HasRedDot)
+        {
+            return fork.RedDotReach;
+        }
+        return fork.IronSightReach;
+    }
+
+    private static float GetOpticZoom(Mod optic)
+    {
+        if (optic == null)
+        {
+            return 0f;
+        }
+        try
+        {
+            SightComponent sight = optic.GetItemComponent<SightComponent>();
+            return sight != null ? sight.GetMaxOpticZoom() : 1f;
+        }
+        catch
+        {
+            // Zoom arrays are template data; fall back to "no magnification" if they are missing.
+            return 1f;
+        }
+    }
+
     public float BulletSpeed { get; private set; } = 600f;
     public float EngagementDistance { get; private set; } = 150f;
     public Weapon Weapon { get; private set; }
@@ -87,6 +129,7 @@ public class WeaponInfo
     private void UpdateWeaponData(Player Player, IEnumerable<Mod> mods)
     {
         FindModType(mods);
+        OpticZoom = GetOpticZoom(Optic);
         MuzzleLoudness = 0f;
         MuzzleLoudness += Suppressor?.Loudness ?? 0f;
         MuzzleLoudness += FlashHider?.Loudness ?? 0f;

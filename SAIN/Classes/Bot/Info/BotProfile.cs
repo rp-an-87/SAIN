@@ -24,7 +24,22 @@ public class BotProfile : BotBase
         IsScav = EnumValues.WildSpawn.IsScav(WildSpawnType);
         IsPMC = WildSpawnType.IsPmcBot();
         IsPlayerScav = IsScav && SAINEnableClass.IsPlayerScav(profile);
+        ForkGroup = ForkBrainFilter.GetGroup(WildSpawnType);
         SetDiffModifier(BotDifficulty);
+    }
+
+    /// <summary>Which of the fork's per-brain toggles applies to this bot.</summary>
+    public readonly EForkBrainGroup ForkGroup;
+
+    /// <summary>True if the fork's range behavior (Fork Tweaks, "Brain: ...") is switched on for this bot's type.</summary>
+    public bool RangeEnabled
+    {
+        get { return ForkBrainFilter.IsRangeEnabled(ForkGroup, GlobalSettings.Fork); }
+    }
+
+    public bool ShotReactionEnabled
+    {
+        get { return ForkBrainFilter.IsShotReactionEnabled(ForkGroup, GlobalSettings.Fork); }
     }
 
     public float DifficultyModifier { get; private set; }

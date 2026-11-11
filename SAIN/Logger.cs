@@ -17,6 +17,12 @@ internal static class Logger
 #endif
     }
 
+    /// <summary>Info log that also exists in Release builds. For the fork's opt-in tuning logs.</summary>
+    public static void LogInfoAlways(object data)
+    {
+        Log(LogLevel.Info, data);
+    }
+
     public static void LogDebug(object data)
     {
 #if DEBUG

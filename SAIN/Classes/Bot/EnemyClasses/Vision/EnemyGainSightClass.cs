@@ -126,7 +126,11 @@ public static class EnemyGainSightClass
             && enemy.Bot.Memory.LastUnderFireEnemy != null
             && enemy.Bot.Memory.LastUnderFireEnemy == enemy;
 
-        float underFireMod = underFire ? UNDER_FIRE_FROM_ME_COEF : 1f;
+        // Fork: with shot reaction on for this bot, being shot at gives a smaller (configurable) bonus to spotting the shooter.
+        float underFireCoef = enemy.Bot.ShotReaction.Enabled
+            ? SAINPlugin.LoadedPreset.GlobalSettings.Fork.ShotUnderFireSpotCoef
+            : UNDER_FIRE_FROM_ME_COEF;
+        float underFireMod = underFire ? underFireCoef : 1f;
         float weatherMod = CalcWeatherMod(flareEnabled, enemy);
         float timeMod = CalcTimeModifier(flareEnabled, enemy);
         float moveMod = CalcMoveModifier(enemy);

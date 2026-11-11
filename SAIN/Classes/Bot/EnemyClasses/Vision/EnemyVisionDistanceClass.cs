@@ -53,7 +53,9 @@ public class EnemyVisionDistanceClass : EnemyBase
         bool shotAtMe = status.ShotAtMeRecently;
 
         float positionalFlareMod = posFlare ? 1.5f : 1f;
-        float underFire = shotAtMe ? 1.5f : 1f;
+        // Fork: with shot reaction on for this bot, being shot at gives a smaller (configurable) vision distance bonus.
+        float underFireMulti = Enemy.Bot.ShotReaction.Enabled ? SAINPlugin.LoadedPreset.GlobalSettings.Fork.ShotUnderFireVisionMulti : 1.5f;
+        float underFire = shotAtMe ? underFireMulti : 1f;
         float finalModifier = (moveMod * angleMod * flareMod * positionalFlareMod * underFire) / gearMod;
 
         float defaultVisDist = BotOwner.LookSensor.VisibleDist;

@@ -147,6 +147,11 @@ public class SAINShootData : BotComponentClassBase
             return false;
         }
 
+        if (!bot.Info.WeaponInfo.IsWithinShootReach(Enemy.RealDistance))
+        {
+            return false;
+        }
+
         var weaponManager = bot.BotOwner.WeaponManager;
         if (weaponManager == null)
         {

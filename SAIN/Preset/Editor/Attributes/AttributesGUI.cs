@@ -1109,7 +1109,8 @@ public class AttributesGUI
         ConfigParams configParams,
         List<ConfigInfoClass> attributeInfos,
         string category,
-        out bool wasEdited
+        out bool wasEdited,
+        bool drawHeader = true
     )
     {
         wasEdited = false;
@@ -1135,7 +1136,10 @@ public class AttributesGUI
             if (!categoryDrawn)
             {
                 categoryDrawn = true;
-                DrawCategory(configParams, attributes, category);
+                if (drawHeader)
+                {
+                    DrawCategory(configParams, attributes, category);
+                }
             }
             DisplayConfigGUI(attributes, configParams, count++, out bool newEdit);
             if (newEdit)
@@ -1160,7 +1164,10 @@ public class AttributesGUI
             if (!categoryDrawn)
             {
                 categoryDrawn = true;
-                DrawCategory(configParams, attributes, category);
+                if (drawHeader)
+                {
+                    DrawCategory(configParams, attributes, category);
+                }
             }
             DisplayConfigGUI(attributes, configParams, count++, out bool newEdit);
             if (newEdit)
@@ -1185,7 +1192,10 @@ public class AttributesGUI
             if (!categoryDrawn)
             {
                 categoryDrawn = true;
-                DrawCategory(configParams, attributes, category);
+                if (drawHeader)
+                {
+                    DrawCategory(configParams, attributes, category);
+                }
             }
             DisplayConfigGUI(attributes, configParams, count++, out bool newEdit);
             if (newEdit)
@@ -1216,16 +1226,113 @@ public class AttributesGUI
         wasEdited = false;
         List<string> categoriesList = new();
         GetCategories(configInfos, categoriesList);
+        HashSet<string> handledSections = new();
         for (int i = 0; i < categoriesList.Count; i++)
         {
-            DisplayCategory(configParams, configInfos, categoriesList[i], out bool newEdit);
-            if (newEdit)
+            string category = categoriesList[i];
+            int slash = category.IndexOf('/');
+            if (slash <= 0)
+            {
+                DisplayCategory(configParams, configInfos, category, out bool newEdit);
+                if (newEdit)
+                {
+                    wasEdited = true;
+                }
+                continue;
+            }
+
+            // Fork: "Section/Subsection" categories are drawn as collapsible menus, collapsed by default.
+            string section = category.Substring(0, slash);
+            if (!handledSections.Add(section))
+            {
+                continue;
+            }
+            DisplaySectionMenu(configParams, configInfos, categoriesList, section, out bool sectionEdit);
+            if (sectionEdit)
             {
                 wasEdited = true;
             }
         }
         categoriesList.Clear();
     }
+
+    private static void DisplaySectionMenu(
+        ConfigParams configParams,
+        List<ConfigInfoClass> configInfos,
+        List<string> categoriesList,
+        string section,
+        out bool wasEdited
+    )
+    {
+        wasEdited = false;
+        // While searching, only matching settings are listed (see GetAllAttributeInfos), so everything with a match stays open.
+        bool searching = !string.IsNullOrEmpty(configParams.Search);
+        string owner = configParams.SettingsObject?.GetType().Name ?? string.Empty;
+        string sectionKey = owner + "/" + section;
+
+        // Same left edge as the setting rows below (StartConfigEntry): 100 plus the nesting indent.
+        float baseIndent = 100f + (configParams.ListDepth * (configParams.EntryConfig ?? _defaultEntryConfig).SubList_Indent_Horizontal);
+
+        _categoryOpen.TryGetValue(sectionKey, out bool sectionOpen);
+        sectionOpen = searching || sectionOpen;
+        BeginHorizontal(baseIndent);
+        if (!searching)
+        {
+            sectionOpen = BuilderClass.ExpandableMenu(section, sectionOpen);
+            _categoryOpen[sectionKey] = sectionOpen;
+        }
+        else
+        {
+            Box(new GUIContent(section), _labelStyle, Height(PresetHandler.EditorDefaults.ConfigEntryHeight));
+        }
+        EndHorizontal(0f);
+        if (!sectionOpen)
+        {
+            return;
+        }
+
+        for (int i = 0; i < categoriesList.Count; i++)
+        {
+            string category = categoriesList[i];
+            if (!category.StartsWith(section + "/"))
+            {
+                continue;
+            }
+            string subName = category.Substring(section.Length + 1);
+            string subKey = owner + "/" + category;
+
+            _categoryOpen.TryGetValue(subKey, out bool subOpen);
+            subOpen = searching || subOpen;
+            BeginHorizontal(baseIndent + SUBSECTION_INDENT);
+            if (!searching)
+            {
+                subOpen = BuilderClass.ExpandableMenu(subName, subOpen);
+                _categoryOpen[subKey] = subOpen;
+            }
+            else
+            {
+                Box(new GUIContent(subName), _labelStyle, Height(PresetHandler.EditorDefaults.ConfigEntryHeight));
+            }
+            EndHorizontal(0f);
+            if (!subOpen)
+            {
+                continue;
+            }
+
+            // The setting rows add their own 100 + depth offset; this only moves them under the subsection header.
+            BeginHorizontal(SUBSECTION_INDENT * 2f);
+            BeginVertical(0f);
+            DisplayCategory(configParams, configInfos, category, out bool newEdit, false);
+            if (newEdit)
+            {
+                wasEdited = true;
+            }
+            EndVertical(0f);
+            EndHorizontal(0f);
+        }
+    }
+
+    private const float SUBSECTION_INDENT = 20f;
 
     private static void GetCategories(List<ConfigInfoClass> configInfos, List<string> outputList)
     {
@@ -1364,6 +1471,7 @@ public class AttributesGUI
     }
 
     private static readonly Dictionary<string, bool> _listOpen = new();
+    private static readonly Dictionary<string, bool> _categoryOpen = new();
     private static readonly List<string> _failedAdds = new();
     private static readonly GUIEntryConfig _defaultEntryConfig = new();
     private static GUIStyle _labelStyle;

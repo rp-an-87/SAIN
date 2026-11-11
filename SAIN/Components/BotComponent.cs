@@ -131,6 +131,7 @@ public class BotComponent : BotComponentBase, ISPlayer
     public AimDownSightsController AimDownSightsController { get; private set; }
     public SAINAILimit AILimit { get; private set; }
     public SAINBotSuppressClass Suppression { get; private set; }
+    public ShotReactionClass ShotReaction { get; private set; }
     public SAINVaultClass Vault { get; private set; }
     public SearchClass Search { get; private set; }
     public SAINMemoryClass Memory { get; private set; }
@@ -279,6 +280,7 @@ public class BotComponent : BotComponentBase, ISPlayer
             Search = new SearchClass(this);
             Vault = new SAINVaultClass(this);
             Suppression = new SAINBotSuppressClass(this);
+            ShotReaction = new ShotReactionClass(this);
             AILimit = new SAINAILimit(this);
             AimDownSightsController = new AimDownSightsController(this);
             SpaceAwareness = new SAINBotSpaceAwareness(this);

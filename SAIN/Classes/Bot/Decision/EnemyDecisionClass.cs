@@ -71,6 +71,13 @@ public class EnemyDecisionClass : BotBase
         }
 #endif
 
+        // Fork: shot at by an enemy it cannot see, the bot takes cover first (see ShotReactionClass).
+        if (Bot.ShotReaction.TryGetDecision(enemy, out ECombatDecision shotReaction))
+        {
+            result = shotReaction;
+            return true;
+        }
+
         bool canTakeAggressiveAction = CanBeAggressive(ref reason);
 #if DEBUG
         if (SAINPlugin.DebugMode)
@@ -480,6 +487,7 @@ public class EnemyDecisionClass : BotBase
             && enemy.RealDistance > Bot.Info.FileSettings.Shoot.MaxPointFireDistance
             && enemy.IsVisible
             && enemy.CanShoot
+            && Bot.Info.WeaponInfo.IsWithinShootReach(enemy.RealDistance)
             && (Bot.Memory.Health.HealthStatus == ETagStatus.Healthy || Bot.Memory.Health.HealthStatus == ETagStatus.Injured)
         )
         {
@@ -526,7 +534,7 @@ public class EnemyDecisionClass : BotBase
             reason = "noBullets";
             return false;
         }
-        if (enemy.RealDistance > Bot.Info.WeaponInfo.EffectiveWeaponDistance * 1.25f)
+        if (enemy.RealDistance > Bot.Info.WeaponInfo.EffectiveWeaponDistance * 1.25f && !Bot.Info.WeaponInfo.IsInOverReachWindow(enemy.RealDistance))
         {
             reason = "outOfRange";
             return false;
