@@ -1026,6 +1026,41 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(0f, 300f, 1f)]
     public float ShotReturnWindow = 60f;
 
+    [DataMember]
+    [Category("Shot Reaction/Bot state (running, facing)")]
+    [Name("Running Penalty Fade Distance")]
+    [Description("A running bot leans toward cover (Cover x1.3, Fight x0.5). That effect is full at this distance (meters) and fades to nothing at the Point Blank Distance, so a running bot hit from close range does not just flee.")]
+    [MinMax(10f, 100f, 1f)]
+    public float ShotRunningFadeDistance = 30f;
+
+    [DataMember]
+    [Category("Shot Reaction/Bot state (running, facing)")]
+    [Name("Facing Angle")]
+    [Description("A bot whose look direction is within this many degrees of the shot direction counts as facing it.")]
+    [MinMax(5f, 90f, 1f)]
+    public float ShotFacingAngle = 30f;
+
+    [DataMember]
+    [Category("Shot Reaction/Bot state (running, facing)")]
+    [Name("Facing Fight Bonus")]
+    [Description("Fight weight multiplier for a bot that is facing the shot. 1 = no effect.")]
+    [MinMax(1f, 3f, 100f)]
+    public float ShotFacingFightBonus = 1.3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Bot state (running, facing)")]
+    [Name("Back Turned Angle")]
+    [Description("A bot whose look direction is at least this many degrees away from the shot direction counts as having its back turned.")]
+    [MinMax(90f, 180f, 1f)]
+    public float ShotBackTurnedAngle = 120f;
+
+    [DataMember]
+    [Category("Shot Reaction/Bot state (running, facing)")]
+    [Name("Back Turned Cover Bonus")]
+    [Description("Cover weight multiplier for a bot with its back turned to the shot. 1 = no effect.")]
+    [MinMax(1f, 3f, 100f)]
+    public float ShotBackTurnedCoverBonus = 1.3f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

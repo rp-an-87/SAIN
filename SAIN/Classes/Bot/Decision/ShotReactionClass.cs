@@ -1634,11 +1634,25 @@ public class ShotReactionClass : BotComponentClassBase
                 break;
         }
 
-        // Bot state: a bot on the move keeps running, a hurt bot hides.
+        // Bot state: a bot on the move keeps running, a hurt bot hides. Running means less the closer the shooter is: the penalty fades
+        // from full at the fade distance to nothing at point blank (fleeing from a close shooter just trades a fight for a hit in the back).
         if (Bot.Mover.Running)
         {
-            cover *= SPRINT_COVER_BONUS;
-            fight *= SPRINT_FIGHT_PENALTY;
+            float strength = Mathf.InverseLerp(POINT_BLANK_DISTANCE, Mathf.Max(fork.ShotRunningFadeDistance, POINT_BLANK_DISTANCE + 1f), distance);
+            cover *= Mathf.Lerp(1f, SPRINT_COVER_BONUS, strength);
+            fight *= Mathf.Lerp(1f, SPRINT_FIGHT_PENALTY, strength);
+        }
+
+        // Facing: a bot already looking toward the shot reacts (fight leans up), a bot with its back turned hides.
+        Vector3 shotDirection = (now - _vaguePositionTime < VAGUE_POSITION_MAX_AGE ? _vaguePosition : enemy.EnemyPosition) - Bot.Position;
+        float lookAngle = Vector3.Angle(Bot.LookDirection, shotDirection);
+        if (lookAngle <= fork.ShotFacingAngle)
+        {
+            fight *= fork.ShotFacingFightBonus;
+        }
+        else if (lookAngle >= fork.ShotBackTurnedAngle)
+        {
+            cover *= fork.ShotBackTurnedCoverBonus;
         }
         ETagStatus health = Bot.Memory.Health.HealthStatus;
         if (health == ETagStatus.BadlyInjured || health == ETagStatus.Dying)
