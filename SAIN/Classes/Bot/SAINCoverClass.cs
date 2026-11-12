@@ -90,7 +90,7 @@ public class SAINCoverClass : BotComponentClassBase
 
     private void LogShotCover(string message)
     {
-        if (_shotAwayUntil < Time.time || !GlobalSettingsClass.Instance.Fork.ShotReactionLog)
+        if (_shotLogUntil < Time.time || !GlobalSettingsClass.Instance.Fork.ShotReactionLog)
         {
             return;
         }
@@ -199,6 +199,7 @@ public class SAINCoverClass : BotComponentClassBase
 
     private Vector3 _shotAwayFrom;
     private float _shotAwayUntil;
+    private float _shotLogUntil;
     private float _forceSprintUntil;
 
     /// <summary>
@@ -210,6 +211,7 @@ public class SAINCoverClass : BotComponentClassBase
         _shotAwayFrom = shotArea;
         // Without awayFromShot the nearest cover is used and the bot never flees (it only runs to cover).
         _shotAwayUntil = awayFromShot ? Time.time + SHOT_COVER_ACTIVE_TIME : 0f;
+        _shotLogUntil = Time.time + SHOT_COVER_ACTIVE_TIME;
         _forceSprintUntil = Time.time + SHOT_COVER_ACTIVE_TIME;
         _nextFleeTime = 0f;
         _fleeActive = false;
@@ -260,6 +262,7 @@ public class SAINCoverClass : BotComponentClassBase
     public void ClearShotState()
     {
         _shotAwayUntil = 0f;
+        _shotLogUntil = 0f;
         _forceSprintUntil = 0f;
         _relocateUntil = 0f;
         _relocateAvoidPoint = null;
@@ -289,6 +292,7 @@ public class SAINCoverClass : BotComponentClassBase
         {
             return false;
         }
+        _shotLogUntil = Time.time + SHOT_COVER_ACTIVE_TIME;
         _advanceActive = true;
         _advanceStart = Time.time;
         _advanceArea = area;
@@ -337,6 +341,7 @@ public class SAINCoverClass : BotComponentClassBase
         _relocateMinEnemyDist = botDistance;
         _relocateUntil = Time.time + SHOT_COVER_ACTIVE_TIME;
         _forceSprintUntil = Time.time + SHOT_COVER_ACTIVE_TIME;
+        _shotLogUntil = Time.time + SHOT_COVER_ACTIVE_TIME;
         _shotAwayUntil = 0f;
         _advanceActive = false;
         CoverInUse = null;
@@ -634,6 +639,7 @@ public class SAINCoverClass : BotComponentClassBase
             {
                 if (!TryFleeFromShot())
                 {
+                    LogNoCover("NO COVER EDGE CASE: no cover points and no flee, falling back to the dogfight move (walks toward the enemy)");
                     const bool AGGRESSIVE_NO_COVER = true;
                     Bot.Mover.DogFight.DogFightMove(AGGRESSIVE_NO_COVER, enemy);
                 }
