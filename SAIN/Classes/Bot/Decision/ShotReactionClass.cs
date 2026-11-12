@@ -117,6 +117,13 @@ public class ShotReactionClass : BotComponentClassBase
     private const float CLOSE_RANGE_MAX = 25f;
     private const float CLOSE_RANGE_REACH_FRACTION = 0.25f;
 
+    /// <summary>
+    /// Point blank (hard stop): shot from this close, even by an unseen shooter, running away does not work. Concealment (suppressor, prone) no longer
+    /// matters and Fight gets at least this share, whatever the weapon, personality or state.
+    /// </summary>
+    private const float POINT_BLANK_DISTANCE = 10f;
+    private const float POINT_BLANK_FIGHT_SHARE = 0.8f;
+
     /// <summary>A hit (or a close bullet) while investigating breaks the advance: the bot runs for cover and reassesses (a new Cover reaction, which ends in a new follow-up pick).</summary>
     private const float INVESTIGATE_BREAK_HIT_CHANCE = 1f;
     private const float INVESTIGATE_BREAK_BULLET_CHANCE = 0.2f;
@@ -1598,6 +1605,10 @@ public class ShotReactionClass : BotComponentClassBase
         {
             concealment *= fork.ShotProneShooterFactor;
         }
+        if (distance <= POINT_BLANK_DISTANCE)
+        {
+            concealment = 1f;
+        }
         fight *= concealment;
         suppress *= concealment;
         hunt *= concealment;
@@ -1645,6 +1656,18 @@ public class ShotReactionClass : BotComponentClassBase
 
         NormalizeWithLimits(ref cover, ref fight, ref suppress, ref hunt, fork, ratio);
 
+        bool pointBlank = distance <= POINT_BLANK_DISTANCE;
+        if (pointBlank && fight < POINT_BLANK_FIGHT_SHARE)
+        {
+            // Applied after the limits on purpose: a short-reach weapon would otherwise cap Fight far below this.
+            float others = cover + suppress + hunt;
+            float scale = others > 0f ? (1f - POINT_BLANK_FIGHT_SHARE) / others : 0f;
+            cover *= scale;
+            suppress *= scale;
+            hunt *= scale;
+            fight = POINT_BLANK_FIGHT_SHARE;
+        }
+
         float pick = Random.value;
         EShotReaction outcome;
         if (pick < cover)
@@ -1675,7 +1698,7 @@ public class ShotReactionClass : BotComponentClassBase
         {
             Logger.LogInfoAlways(
                 $"[ShotReaction] t={Time.time:0.0} {Bot.name} ({Bot.Info.Personality}) vs {enemy.EnemyName}: dist {distance:0} m, reach {reach:0} m, hit {hit}, visible {enemy.IsVisible} ({enemy.VisibleDuration:0.0} s), look angle {Vector3.Angle(Bot.LookDirection, enemy.EnemyPosition - Bot.Position):0} deg, moving {Bot.Mover.Moving}, running {Bot.Mover.Running}, "
-                    + $"shares cover {cover:0.00} fight {fight:0.00} suppress {suppress:0.00} hunt {hunt:0.00} -> {outcome}"
+                    + $"shares cover {cover:0.00} fight {fight:0.00} suppress {suppress:0.00} hunt {hunt:0.00}{(pointBlank ? " (point blank)" : "")} -> {outcome}"
             );
         }
     }
