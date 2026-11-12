@@ -575,6 +575,13 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Position & timing")]
+    [Name("Position Error Min")]
+    [Description("The smallest position error, in meters: a shot never gives the bot the shooter's exact position, even up close.")]
+    [MinMax(0f, 30f, 1f)]
+    public float ShotPositionErrorMin = 4f;
+
+    [DataMember]
+    [Category("Shot Reaction/Position & timing")]
     [Name("Hit Position Error Factor")]
     [Description("The position error is multiplied by this when the bot was actually hit (a hit says more about where the shooter is).")]
     [MinMax(0f, 1f, 100f)]
@@ -600,13 +607,6 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("Longest time, in seconds, a bot keeps to cover after choosing Cover or Suppress (for a shooter at the edge of its reach or beyond).")]
     [MinMax(0.5f, 60f, 10f)]
     public float ShotCoverTimeMax = 10f;
-
-    [DataMember]
-    [Category("Shot Reaction/Position & timing")]
-    [Name("Forget Delay After Cover")]
-    [Description("A bot that chose Cover or Suppress forgets the shooter this many seconds after leaving cover, unless it was shot at again or saw the shooter.")]
-    [MinMax(0f, 30f, 10f)]
-    public float ShotForgetDelay = 2f;
 
     [DataMember]
     [Category("Shot Reaction/Position & timing")]

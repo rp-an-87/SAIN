@@ -245,6 +245,30 @@ public class SAINCoverClass : BotComponentClassBase
         _advanceFrom = null;
     }
 
+    /// <summary>When the current advance hop started (0 if none).</summary>
+    public float AdvanceStartTime
+    {
+        get { return _advanceStart; }
+    }
+
+    private float _advanceStart;
+
+    /// <summary>
+    /// Fork: the shot reaction is over (or the bot starts something else): drop every flag that made cover selection and sprinting behave
+    /// by shot-reaction rules, so normal combat does not keep running under them.
+    /// </summary>
+    public void ClearShotState()
+    {
+        _shotAwayUntil = 0f;
+        _forceSprintUntil = 0f;
+        _relocateUntil = 0f;
+        _relocateAvoidPoint = null;
+        _fleeActive = false;
+        _advanceActive = false;
+        _advanceFrom = null;
+        _advanceStart = 0f;
+    }
+
     /// <summary>
     /// Fork: one hop of a cover-to-cover advance. Needs a cover point that is clearly closer to the area than the bot is now and not too far to run.
     /// False = no such point (the bot stays where it is). The bot drops its current cover and sprints to the chosen one.
@@ -266,6 +290,7 @@ public class SAINCoverClass : BotComponentClassBase
             return false;
         }
         _advanceActive = true;
+        _advanceStart = Time.time;
         _advanceArea = area;
         _advanceFrom = CoverInUse;
         _shotAwayUntil = 0f;

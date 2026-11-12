@@ -82,6 +82,23 @@ public class ShotReactionClass : BotComponentClassBase
     /// <summary>In an advance the bot holds each cover this long (scaled by personality) before it runs to the next one.</summary>
     private const float HOP_HOLD_MIN = 3f;
 
+    /// <summary>A hop that has not reached its cover after this long, or has stalled (not moving) for HOP_STALL_TIME, is abandoned; no new hop for HOP_RETRY_DELAY.</summary>
+    private const float HOP_TIMEOUT = 12f;
+    private const float HOP_STALL_TIME = 3f;
+    private const float HOP_RETRY_DELAY = 5f;
+
+    /// <summary>A hit while hiding keeps the bot hiding at least this much longer.</summary>
+    private const float HIDE_EXTEND = 2f;
+
+    /// <summary>After an investigation was broken by fire, the next break is only allowed after this long (so a player cannot kite a bot forever with single shots).</summary>
+    private const float BREAK_LOCKOUT = 15f;
+
+    /// <summary>A state whose hook never ran (the bot was busy with something earlier in the decision order) is ended this long after it expired.</summary>
+    private const float EXPIRY_GRACE = 1f;
+
+    /// <summary>Gunshots from the same shooter within this time reuse the last vague position (every bot in earshot computes one).</summary>
+    private const float DEGRADE_THROTTLE = 0.75f;
+
     /// <summary>Self preservation: a hit (or a close bullet) while the bot shelters in cover makes it look for another cover. Chances, scaled by personality; at most one move per interval.</summary>
     private const float SELF_PRESERVE_HIT_CHANCE = 0.9f;
     private const float SELF_PRESERVE_BULLET_CHANCE = 0.2f;
@@ -229,22 +246,25 @@ public class ShotReactionClass : BotComponentClassBase
             return estimated;
         }
         ForkSettings fork = GlobalSettings.Fork;
-        float radius = distance * fork.ShotPositionErrorPerMeter * (hit ? fork.ShotHitErrorFactor : 1f);
-        radius = Mathf.Min(radius, fork.ShotPositionErrorMax);
-        if (radius < 1f)
+        float now = Time.time;
+        // Every bot in earshot of a gunshot gets here: a bullet that is not a hit reuses the last vague position for a moment (no navmesh query).
+        if (!hit && _vaguePositionTime > 0f && now - _lastDegradeTime < DEGRADE_THROTTLE)
         {
-            RememberVaguePosition(estimated);
-            return estimated;
+            return _vaguePosition;
         }
+        _lastDegradeTime = now;
+
+        float radius = distance * fork.ShotPositionErrorPerMeter * (hit ? fork.ShotHitErrorFactor : 1f);
+        radius = Mathf.Max(Mathf.Min(radius, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = Random.insideUnitCircle * radius;
         Vector3 point = enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y);
         if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, radius * 0.5f), NavMesh.AllAreas))
         {
-            RememberVaguePosition(navHit.position);
-            return navHit.position;
+            point = navHit.position;
         }
-        RememberVaguePosition(estimated);
-        return estimated;
+        // Never the shooter's exact position: if there is no navmesh near the offset point, the raw offset point is the vague area.
+        RememberVaguePosition(point);
+        return point;
     }
 
     private void RememberVaguePosition(Vector3 position)
@@ -274,6 +294,8 @@ public class ShotReactionClass : BotComponentClassBase
             shallReportToSquad = true,
         };
         enemy.Hearing.SetHeard(report, Time.time);
+        // Being shot is not "heard from peace": SAIN would freeze (indoors) or search stealthily because of it.
+        enemy.Hearing.EnemyHeardFromPeace = false;
         OnShot(enemy, distance, true);
     }
 
@@ -289,16 +311,25 @@ public class ShotReactionClass : BotComponentClassBase
         }
         float now = Time.time;
         // A state is "in effect" until it expires (hide, fight, fight on, investigate) or while the bot retreats. A shot then never starts a new roll.
-        bool inEffect = (Outcome != EShotReaction.None && now < _expireTime) || (Relocating && enemy == _forgetEnemy);
+        bool inEffect = (Outcome != EShotReaction.None && now < _expireTime) || (Relocating && enemy == _enemy);
         if (enemy == _enemy && (inEffect || now < _nextRollTime))
         {
             // Same fight: the shot only keeps the reaction going.
             string state = Relocating ? "Retreat" : Outcome.ToString();
             if (Outcome != EShotReaction.None)
             {
-                _expireTime = Mathf.Max(_expireTime, now + 0.5f);
+                if ((Outcome == EShotReaction.Cover || Outcome == EShotReaction.Suppress) && !_followDone && now < _hideUntil)
+                {
+                    // Shot at again while hiding: it keeps hiding a bit longer.
+                    _hideUntil = Mathf.Max(_hideUntil, now + HIDE_EXTEND);
+                    _expireTime = Mathf.Max(_expireTime, _hideUntil + 0.5f);
+                }
+                else
+                {
+                    _expireTime = Mathf.Max(_expireTime, now + 0.5f);
+                }
             }
-            LogEvent($"{(hit ? "hit" : "bullet")} at {distance:0} m while {state} is in effect, reaction extended, no new roll");
+            LogEvent($"{(hit ? "hit" : "bullet")} at {distance:0} m while {state} is in effect, no new roll");
             if (TryBreakInvestigate(enemy, distance, hit, now))
             {
                 return;
@@ -317,7 +348,7 @@ public class ShotReactionClass : BotComponentClassBase
         decision = ECombatDecision.None;
         if (Relocating)
         {
-            if (enemy != _forgetEnemy || !ContinueRelocating(enemy))
+            if (enemy != _enemy || !ContinueRelocating(enemy))
             {
                 return false;
             }
@@ -427,8 +458,17 @@ public class ShotReactionClass : BotComponentClassBase
         Vector3 area = _vaguePosition;
         if (Bot.Cover.AdvanceActive)
         {
-            decision = ECombatDecision.SeekCover;
-            return true;
+            float hopAge = now - Bot.Cover.AdvanceStartTime;
+            bool stalled = hopAge > HOP_STALL_TIME && !Bot.Mover.Moving && Bot.Cover.CoverPoint_MovingTo == null;
+            if (hopAge <= HOP_TIMEOUT && !stalled)
+            {
+                decision = ECombatDecision.SeekCover;
+                return true;
+            }
+            // The hop is not getting anywhere (no path, blocked): give it up instead of standing in the open.
+            LogEvent($"advance: hop abandoned ({(stalled ? "stalled" : "timed out")} after {hopAge:0.0} s)");
+            Bot.Cover.StopAdvance();
+            _noHopUntil = now + HOP_RETRY_DELAY;
         }
         bool inCover = Bot.Cover.CoverInUse != null;
         if (inCover && Bot.Cover.TimeHeldInCover < _hopHold)
@@ -436,7 +476,7 @@ public class ShotReactionClass : BotComponentClassBase
             decision = ECombatDecision.SeekCover;
             return true;
         }
-        if (Bot.Cover.StartAdvanceHop(area))
+        if (now >= _noHopUntil && Bot.Cover.StartAdvanceHop(area))
         {
             _hopHold = HopHoldTime();
             LogEvent("advance: next cover closer to the shot area");
@@ -464,7 +504,7 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     private bool TryBreakInvestigate(Enemy enemy, float distance, bool hit, float now)
     {
-        if (Outcome != EShotReaction.Hunt || now < _hideUntil || Relocating)
+        if (Outcome != EShotReaction.Hunt || now < _hideUntil || Relocating || now < _nextBreakAllowed)
         {
             return false;
         }
@@ -488,6 +528,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
         Bot.Cover.StopAdvance();
+        _nextBreakAllowed = now + BREAK_LOCKOUT;
         LogEvent($"shot at again while investigating ({(hit ? "hit" : "bullet")} at {distance:0} m): running for cover to reassess");
         Apply(enemy, EShotReaction.Cover, distance / reach, now, GlobalSettings.Fork);
         return true;
@@ -667,6 +708,7 @@ public class ShotReactionClass : BotComponentClassBase
                     continue;
                 }
                 RelocatePoint = sampled.Value;
+                Bot.Cover.ClearShotState();
                 Relocating = true;
                 _relocateEnd = Time.time + fork.ShotRelocateTimeMax;
                 Outcome = EShotReaction.None;
@@ -705,6 +747,7 @@ public class ShotReactionClass : BotComponentClassBase
     {
         LogEvent($"relocation over: {reason}");
         StartTrace(now);
+        Bot.Cover.ClearShotState();
         Relocating = false;
         // Done: the shooter is forgotten (unless new information arrives) and the bot resumes its task from here.
     }
@@ -779,6 +822,31 @@ public class ShotReactionClass : BotComponentClassBase
     public override void ManualUpdate()
     {
         float now = Time.time;
+        // Safety net: the decision hook only runs when this shooter is the bot's chosen enemy and nothing earlier in the decision order wins
+        // (self actions, grenade avoidance, squad decisions ...). Without this a state could stay set, and keep rules like the sprint override, for good.
+        if (Outcome != EShotReaction.None || Relocating)
+        {
+            if (!Enemy.IsEnemyActive(_enemy))
+            {
+                if (Relocating)
+                {
+                    StopRelocating(now, "the shooter is gone");
+                }
+                if (Outcome != EShotReaction.None)
+                {
+                    End("the shooter is gone");
+                }
+            }
+            else if (Relocating && now >= _relocateEnd + EXPIRY_GRACE)
+            {
+                StopRelocating(now, "time limit");
+            }
+            else if (Outcome != EShotReaction.None && now >= _expireTime + EXPIRY_GRACE)
+            {
+                End("expired");
+            }
+        }
+
         if (now >= _traceUntil || now < _nextTrace)
         {
             return;
@@ -794,11 +862,11 @@ public class ShotReactionClass : BotComponentClassBase
 
     private void End(string reason)
     {
-        LogEvent($"{Outcome} reaction over: {reason}");
+        LogEvent($"{Outcome} reaction (rolled {_rolled}) over: {reason}");
         StartTrace(Time.time);
         SprintWhileInvestigating = false;
         _ambushUntil = 0f;
-        Bot.Cover.StopAdvance();
+        Bot.Cover.ClearShotState();
         Outcome = EShotReaction.None;
         _hideUntil = 0f;
         _expireTime = 0f;
@@ -814,7 +882,7 @@ public class ShotReactionClass : BotComponentClassBase
         SampleShares(ratio, fork, out float cover, out float fight, out float suppress, out float hunt);
 
         // Weapon: sights pull Fight, class pulls Suppress, reach fades both out.
-        fight *= Mathf.Clamp(weaponInfo.SightReachMultiplier, 0.5f, 1.6f);
+        // (The sights are already in the reach, which the ratio is relative to: no second multiplier here.)
         fight *= Mathf.Clamp01(Mathf.InverseLerp(FIGHT_FADE_END, FIGHT_FADE_START, ratio));
         float suppressFade = 1f;
         if (fork.SuppressLimitEnabled && Bot.Info.Profile.RangeEnabled)
@@ -915,6 +983,11 @@ public class ShotReactionClass : BotComponentClassBase
         }
 
         Apply(enemy, outcome, ratio, now, fork);
+        if (outcome != EShotReaction.Fight)
+        {
+            // A bot that already sits in cover has nowhere to run to: shot at there, it moves to another cover.
+            TrySelfPreservation(hit, now);
+        }
 
         if (fork.ShotReactionLog)
         {
@@ -1017,6 +1090,12 @@ public class ShotReactionClass : BotComponentClassBase
             {
                 fight += excess;
             }
+            // The Fight limit still holds: what Fight cannot take goes to Hunt (an active answer, not hiding).
+            if (fight > maxFight)
+            {
+                hunt += fight - maxFight;
+                fight = maxFight;
+            }
         }
 
         float minCover = Mathf.Clamp01(Mathf.Lerp(fork.ShotCoverMinShare, Mathf.Min(fork.ShotCoverMinShare, CLOSE_COVER_MIN_SHARE), closeness));
@@ -1035,8 +1114,8 @@ public class ShotReactionClass : BotComponentClassBase
     private void Apply(Enemy enemy, EShotReaction outcome, float reachRatio, float now, ForkSettings fork)
     {
         _enemy = enemy;
-        _forgetEnemy = enemy;
         Outcome = outcome;
+        _rolled = outcome;
         Relocating = false;
         _followDone = false;
         _ambushUntil = 0f;
@@ -1085,7 +1164,10 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     private Enemy _enemy;
-    private Enemy _forgetEnemy;
+    private EShotReaction _rolled;
+    private float _nextBreakAllowed;
+    private float _noHopUntil;
+    private float _lastDegradeTime = -999f;
     private float _hideUntil;
     private float _expireTime;
     private float _nextRollTime;
