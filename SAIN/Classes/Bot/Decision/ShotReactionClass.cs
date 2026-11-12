@@ -67,8 +67,8 @@ public class ShotReactionClass : BotComponentClassBase
     private const float SEEN_HOLD = 4f;
 
     /// <summary>Within this share of the reach (a strong weapon at a short distance) Cover is capped, the excess goes to fighting back.</summary>
-    private const float STRONG_WEAPON_RATIO = 0.5f;
-    private const float STRONG_WEAPON_COVER_MAX = 0.6f;
+    private static float STRONG_WEAPON_RATIO => GlobalSettings.Fork.ShotStrongWeaponRatio;
+    private static float STRONG_WEAPON_COVER_MAX => GlobalSettings.Fork.ShotStrongWeaponCoverMax;
 
     /// <summary>Investigate stops advancing when the bot is this close to the vague shot area (it is in ambush range) or hears the shooter.</summary>
     private static float INVESTIGATE_STOP_DISTANCE => GlobalSettings.Fork.ShotInvestigateStopDistance;

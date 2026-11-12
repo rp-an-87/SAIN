@@ -438,7 +438,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Short: Cover Weight")]
     [Description("Relative weight of taking cover when the shooter is in the short zone. The four weights of a zone are compared, they do not need to add up to 100.")]
     [MinMax(0f, 100f, 1f)]
-    public float ShortCover = 35f;
+    public float ShortCover = 20f;
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
@@ -452,7 +452,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Mid: Cover Weight")]
     [Description("Relative weight of taking cover in the mid zone.")]
     [MinMax(0f, 100f, 1f)]
-    public float MidCover = 65f;
+    public float MidCover = 45f;
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
@@ -1060,6 +1060,20 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("Cover weight multiplier for a bot with its back turned to the shot. 1 = no effect.")]
     [MinMax(1f, 3f, 100f)]
     public float ShotBackTurnedCoverBonus = 1.3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Zones & weights")]
+    [Name("Strong Weapon Range")]
+    [Description("A shooter closer than this share of the bot's effective reach counts as close for a strong weapon: the Cover share is limited to the next setting there.")]
+    [MinMax(0.1f, 1f, 100f)]
+    public float ShotStrongWeaponRatio = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Zones & weights")]
+    [Name("Strong Weapon Cover Limit")]
+    [Description("Largest Cover share when the shooter is inside the Strong Weapon Range. The rest goes to fighting back.")]
+    [MinMax(0.2f, 1f, 100f)]
+    public float ShotStrongWeaponCoverMax = 0.6f;
 
     public override void Init(List<ISAINSettings> list)
     {
