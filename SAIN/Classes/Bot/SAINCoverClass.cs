@@ -178,13 +178,17 @@ public class SAINCoverClass : BotComponentClassBase
         filterAwayFromShot();
         filterTowardArea();
 
-        _coverPoints.Sort((x, y) => x.PathData.PathLength.CompareTo(y.PathData.PathLength));
+        // Foliage (bushes) hides a bot but stops nothing and is a poor place to stay: it only wins when it is FOLIAGE_PATH_PENALTY closer than solid cover.
+        _coverPoints.Sort((x, y) => CoverCost(x).CompareTo(CoverCost(y)));
         for (int i = 0; i < _coverPoints.Count; i++)
         {
             CoverPoint coverPoint = _coverPoints[i];
             if (Bot.Mover.GoToCoverPoint(coverPoint, _shallSprint, ESprintUrgency.High))
             {
-                LogShotCover($"cover search: picked candidate {i + 1} of {_coverPoints.Count}, path {coverPoint.PathData.PathLength:0} m, sprint {_shallSprint}");
+                LogShotCover(
+                    $"cover search: picked candidate {i + 1} of {_coverPoints.Count}, path {coverPoint.PathData.PathLength:0} m, sprint {_shallSprint}, "
+                        + $"cover '{coverPoint.Collider?.name}' layer {(coverPoint.Collider != null ? LayerMask.LayerToName(coverPoint.Collider.gameObject.layer) : "?")}{(IsFoliage(coverPoint) ? " (foliage)" : "")}"
+                );
                 return coverPoint;
             }
         }
@@ -192,6 +196,39 @@ public class SAINCoverClass : BotComponentClassBase
         //Logger.LogWarning($"[{Bot.name}] No Cover Point found, even though there are {_coverPoints.Count} cover points available.");
         return null;
     }
+
+    /// <summary>A cover on the Foliage layer counts as this many metres further away than it is (see FindCoverPoint).</summary>
+    private const float FOLIAGE_PATH_PENALTY = 30f;
+
+    private static int _foliageLayer = -1;
+
+    /// <summary>True if the cover point's collider is on the Foliage layer (bushes, hedges): concealment, not protection.</summary>
+    public static bool IsFoliage(CoverPoint point)
+    {
+        Collider collider = point?.Collider;
+        if (collider == null)
+        {
+            return false;
+        }
+        if (_foliageLayer < 0)
+        {
+            _foliageLayer = LayerMask.NameToLayer("Foliage");
+        }
+        return collider.gameObject.layer == _foliageLayer;
+    }
+
+    /// <summary>True while the bot sits in (or has been using) foliage cover.</summary>
+    public bool InFoliageCover
+    {
+        get { return IsFoliage(CoverInUse); }
+    }
+
+    private static float CoverCost(CoverPoint point)
+    {
+        return point.PathData.PathLength + (IsFoliage(point) ? FOLIAGE_PATH_PENALTY : 0f);
+    }
+
+    private bool _relocateSolidOnly;
 
     private const float RELOAD_RELOCATE_ACTIVE_TIME = 10f;
     private const float SHOT_COVER_ACTIVE_TIME = 8f;
@@ -318,6 +355,8 @@ public class SAINCoverClass : BotComponentClassBase
         float minFromOld = GlobalSettingsClass.Instance.Fork.RelocateMinDistanceFromOldCover;
         float botDistance = Vector3.Distance(Bot.Position, shotArea);
         bool any = false;
+        bool anySolid = false;
+        bool inFoliage = IsFoliage(CoverInUse);
         foreach (CoverPoint point in CoverPoints)
         {
             if (
@@ -329,13 +368,19 @@ public class SAINCoverClass : BotComponentClassBase
             )
             {
                 any = true;
-                break;
+                if (!IsFoliage(point))
+                {
+                    anySolid = true;
+                    break;
+                }
             }
         }
         if (!any)
         {
             return false;
         }
+        // Shot at in a bush: it goes for solid cover when there is any (another bush would change nothing).
+        _relocateSolidOnly = inFoliage && anySolid;
         _relocateAvoidPoint = CoverInUse;
         _relocateEnemyPos = shotArea;
         _relocateMinEnemyDist = botDistance;
@@ -448,6 +493,7 @@ public class SAINCoverClass : BotComponentClassBase
             return false;
         }
 
+        _relocateSolidOnly = false;
         _relocateAvoidPoint = CoverInUse;
         _relocateEnemyPos = lastKnown.Value;
         _relocateMinEnemyDist = Vector3.Distance(Bot.Position, _relocateEnemyPos);
@@ -467,6 +513,7 @@ public class SAINCoverClass : BotComponentClassBase
         if (_relocateUntil < Time.time)
         {
             _relocateAvoidPoint = null;
+            _relocateSolidOnly = false;
             return;
         }
         _relocateTemp.Clear();
@@ -474,7 +521,7 @@ public class SAINCoverClass : BotComponentClassBase
         float minFromOld = GlobalSettingsClass.Instance.Fork.RelocateMinDistanceFromOldCover;
         foreach (CoverPoint point in _coverPoints)
         {
-            if (point == _relocateAvoidPoint)
+            if (point == _relocateAvoidPoint || (_relocateSolidOnly && IsFoliage(point)))
             {
                 continue;
             }

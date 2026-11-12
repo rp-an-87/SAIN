@@ -571,7 +571,8 @@ public class ShotReactionClass : BotComponentClassBase
             }
             return;
         }
-        float chance = hit ? SELF_PRESERVE_HIT_CHANCE : SELF_PRESERVE_BULLET_CHANCE;
+        // A bush stops nothing: shot at in foliage the bot reacts to a bullet as strongly as to a hit.
+        float chance = hit || Bot.Cover.InFoliageCover ? SELF_PRESERVE_HIT_CHANCE : SELF_PRESERVE_BULLET_CHANCE;
         switch (Bot.Info.Personality)
         {
             case EPersonality.Wreckless:
@@ -590,9 +591,10 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         _nextSelfPreserve = now + SELF_PRESERVE_INTERVAL;
+        bool inFoliage = Bot.Cover.InFoliageCover;
         if (Bot.Cover.RelocateFromFire(_vaguePosition))
         {
-            LogEvent($"self preservation: shot at in cover, moving to another cover (chance {chance:0.00})");
+            LogEvent($"self preservation: shot at in {(inFoliage ? "foliage" : "cover")}, moving to another cover (chance {chance:0.00})");
         }
     }
 
