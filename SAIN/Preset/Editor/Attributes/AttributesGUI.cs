@@ -1462,12 +1462,15 @@ public class AttributesGUI
 
     public static bool SkipForSearch(ConfigInfoClass attributes, string searchQuerry)
     {
-        return !string.IsNullOrEmpty(searchQuerry)
-            && (
-                attributes.Name?.ToLower().Contains(searchQuerry) == false
-                && attributes.Description?.ToLower().Contains(searchQuerry) == false
-                && attributes.Category?.ToLower().Contains(searchQuerry) == false
-            );
+        if (string.IsNullOrEmpty(searchQuerry))
+        {
+            return false;
+        }
+        // The texts are compared in lower case, so the query has to be too (typing "Shot" found nothing before).
+        searchQuerry = searchQuerry.ToLower();
+        return attributes.Name?.ToLower().Contains(searchQuerry) == false
+            && attributes.Description?.ToLower().Contains(searchQuerry) == false
+            && attributes.Category?.ToLower().Contains(searchQuerry) == false;
     }
 
     private static readonly Dictionary<string, bool> _listOpen = new();
