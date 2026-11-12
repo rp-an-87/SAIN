@@ -207,6 +207,13 @@ internal class SearchAction(BotOwner bot) : BotAction(bot, "Search"), IBotAction
             return;
         }
 
+        // Fork: a bot investigating the place it was shot from runs (SAIN's search chance for sprinting does not apply).
+        if (Bot.ShotReaction.SprintWhileInvestigating)
+        {
+            _sprintEnabled = true;
+            return;
+        }
+
         if (_searchTarget.IsSniper && Bot.Info.PersonalitySettings.General.ENEMYSNIPER_ALWAYS_SPRINT_SEARCH)
         {
             _sprintEnabled = true;

@@ -71,6 +71,15 @@ public class ShotReactionClass : BotComponentClassBase
     private const float STRONG_WEAPON_RATIO = 0.5f;
     private const float STRONG_WEAPON_COVER_MAX = 0.6f;
 
+    /// <summary>Investigate stops advancing when the bot is this close to the vague shot area (it is in ambush range) or hears the shooter.</summary>
+    private const float INVESTIGATE_STOP_DISTANCE = 15f;
+    private const float INVESTIGATE_SOUND_AGE = 1.5f;
+    private const float INVESTIGATE_SOUND_GRACE = 2f;
+
+    /// <summary>After stopping, the bot holds cover and watches this long (scaled by personality), then the state ends.</summary>
+    private const float AMBUSH_TIME_MIN = 20f;
+    private const float AMBUSH_TIME_MAX = 40f;
+
     private enum EFollowUp
     {
         Retreat,
@@ -79,6 +88,9 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     public EShotReaction Outcome { get; private set; }
+
+    /// <summary>True while the bot investigates and moves: SAIN's search then sprints (when it is not waiting or looking at the enemy).</summary>
+    public bool SprintWhileInvestigating { get; private set; }
 
     /// <summary>True while the bot walks away from the area it was shot at (after hiding).</summary>
     public bool Relocating { get; private set; }
@@ -335,7 +347,66 @@ public class ShotReactionClass : BotComponentClassBase
             decision = ECombatDecision.SeekCover;
             return true;
         }
+        if (Outcome == EShotReaction.Hunt)
+        {
+            return TryInvestigate(enemy, now, out decision);
+        }
+        if (Outcome == EShotReaction.Suppress && _followDone)
+        {
+            // Fight On: stay in cover; SAIN's cover action fires suppressive bursts at the vague area and fights normally when it sees the shooter.
+            decision = ECombatDecision.SeekCover;
+            return true;
+        }
+        SprintWhileInvestigating = false;
         return false;
+    }
+
+    /// <summary>
+    /// Investigate: SAIN's own search toward the vague area, sprinting. It stops when the bot is close to the area or hears the shooter:
+    /// it then holds cover and watches (an ambush) for a while, and the state ends. Seeing the shooter ends it at once (handled by the caller).
+    /// </summary>
+    private bool TryInvestigate(Enemy enemy, float now, out ECombatDecision decision)
+    {
+        decision = ECombatDecision.None;
+        SprintWhileInvestigating = false;
+        if (_ambushUntil > 0f)
+        {
+            if (now >= _ambushUntil)
+            {
+                End("ambush over");
+                return false;
+            }
+            decision = ECombatDecision.SeekCover;
+            return true;
+        }
+
+        bool close = _vaguePositionTime > 0f && (Bot.Position - _vaguePosition).magnitude < INVESTIGATE_STOP_DISTANCE;
+        bool sound = now - _investigateStart > INVESTIGATE_SOUND_GRACE && enemy.Hearing.Heard && enemy.Hearing.TimeSinceHeard < INVESTIGATE_SOUND_AGE;
+        if (close || sound)
+        {
+            float time = Random.Range(AMBUSH_TIME_MIN, AMBUSH_TIME_MAX);
+            switch (Bot.Info.Personality)
+            {
+                case EPersonality.Wreckless:
+                case EPersonality.GigaChad:
+                case EPersonality.Chad:
+                    time /= GlobalSettings.Fork.ShotAggressivePull;
+                    break;
+                case EPersonality.Rat:
+                case EPersonality.Timmy:
+                case EPersonality.Coward:
+                    time *= GlobalSettings.Fork.ShotTimidPull;
+                    break;
+            }
+            _ambushUntil = now + time;
+            LogEvent($"investigate stops ({(close ? "close to the shot area" : "heard the shooter")}), holding cover and watching for {time:0} s");
+            decision = ECombatDecision.SeekCover;
+            return true;
+        }
+
+        SprintWhileInvestigating = true;
+        decision = ECombatDecision.Search;
+        return true;
     }
 
     /// <summary>Weighted choice of what the bot does once its hide is over.</summary>
@@ -413,6 +484,8 @@ public class ShotReactionClass : BotComponentClassBase
         ForkSettings fork = GlobalSettings.Fork;
         Outcome = EShotReaction.Hunt;
         _hideUntil = now;
+        _investigateStart = now;
+        _ambushUntil = 0f;
         _expireTime = now + fork.ShotHuntTimeMax;
     }
 
@@ -589,6 +662,8 @@ public class ShotReactionClass : BotComponentClassBase
     {
         LogEvent($"{Outcome} reaction over: {reason}");
         StartTrace(Time.time);
+        SprintWhileInvestigating = false;
+        _ambushUntil = 0f;
         Outcome = EShotReaction.None;
         _hideUntil = 0f;
         _expireTime = 0f;
@@ -829,6 +904,8 @@ public class ShotReactionClass : BotComponentClassBase
         Outcome = outcome;
         Relocating = false;
         _followDone = false;
+        _ambushUntil = 0f;
+        SprintWhileInvestigating = false;
         _nextRollTime = now + fork.ShotRerollInterval;
         _steerLogged = false;
         LogEvent($"outcome {outcome}");
@@ -860,6 +937,7 @@ public class ShotReactionClass : BotComponentClassBase
 
             case EShotReaction.Hunt:
                 _hideUntil = now + Random.Range(Mathf.Min(fork.ShotAssessTimeMin, fork.ShotAssessTimeMax), Mathf.Max(fork.ShotAssessTimeMin, fork.ShotAssessTimeMax));
+                _investigateStart = _hideUntil;
                 _expireTime = now + Mathf.Max(fork.ShotHuntTimeMax, fork.ShotAssessTimeMax);
                 break;
 
@@ -879,6 +957,8 @@ public class ShotReactionClass : BotComponentClassBase
     private bool _steerLogged;
     private float _inCoverSince = -1f;
     private bool _followDone;
+    private float _investigateStart;
+    private float _ambushUntil;
     private float _traceUntil;
     private float _nextTrace;
     private Enemy _lastSeenEnemy;
