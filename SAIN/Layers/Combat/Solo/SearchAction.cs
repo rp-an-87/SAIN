@@ -208,7 +208,7 @@ internal class SearchAction(BotOwner bot) : BotAction(bot, "Search"), IBotAction
         }
 
         // Fork: a bot investigating the place it was shot from runs (SAIN's search chance for sprinting does not apply).
-        if (Bot.ShotReaction.SprintWhileInvestigating && Bot.ShotReaction.IsManaging(_searchTarget))
+        if ((Bot.ShotReaction.SprintWhileInvestigating && Bot.ShotReaction.IsManaging(_searchTarget)) || Bot.ShotReaction.IsReturning(_searchTarget))
         {
             _sprintEnabled = true;
             return;

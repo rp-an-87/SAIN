@@ -800,6 +800,18 @@ public class ShotReactionClass : BotComponentClassBase
     private const float REPEAT_RELOCATE_INTERVAL = 8f;
     private const int REPEAT_RELOCATE_MAX = 2;
 
+    /// <summary>After a hunt runs out (ambush over, time up, expired) with the shooter still unseen, SAIN's own search takes over: for this long it sprints instead of strolling.</summary>
+    private const float RETURN_WINDOW = 60f;
+
+    private float _returnUntil;
+    private Enemy _returnEnemy;
+
+    /// <summary>True while a bot whose hunt just ran out searches for this enemy at a run (set up by End, read by the search action).</summary>
+    public bool IsReturning(Enemy enemy)
+    {
+        return enemy != null && enemy == _returnEnemy && Time.time < _returnUntil;
+    }
+
     private float _lastThreatTime = -999f;
     private float _safetyCache;
     private float _safetyCacheTime = -999f;
@@ -1529,6 +1541,12 @@ public class ShotReactionClass : BotComponentClassBase
     private void End(string reason)
     {
         LogEvent($"{Outcome} reaction (rolled {_rolled}) over: {reason}");
+        if (Outcome == EShotReaction.Hunt && (reason == "ambush over" || reason == "time is up" || reason == "expired") && _enemy != null)
+        {
+            _returnEnemy = _enemy;
+            _returnUntil = Time.time + RETURN_WINDOW;
+            LogEvent($"hunt over, still no sight of the shooter: its search runs for the next {RETURN_WINDOW:0} s instead of strolling");
+        }
         StartTrace(Time.time);
         SprintWhileInvestigating = false;
         _ambushUntil = 0f;
@@ -1789,6 +1807,7 @@ public class ShotReactionClass : BotComponentClassBase
         _noCoverSince = -1f;
         _postRetreat = false;
         _repeatRelocations = 0;
+        _returnUntil = 0f;
         _ambushUntil = 0f;
         SprintWhileInvestigating = false;
         _nextRollTime = now + fork.ShotRerollInterval;
