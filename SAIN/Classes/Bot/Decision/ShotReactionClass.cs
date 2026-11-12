@@ -81,6 +81,11 @@ public class ShotReactionClass : BotComponentClassBase
 
     /// <summary>In an advance the bot holds each cover this long (scaled by personality) before it runs to the next one.</summary>
     private const float HOP_HOLD_MIN = 3f;
+
+    /// <summary>Self preservation: a hit (or a close bullet) while the bot shelters in cover makes it look for another cover. Chances, scaled by personality; at most one move per interval.</summary>
+    private const float SELF_PRESERVE_HIT_CHANCE = 0.7f;
+    private const float SELF_PRESERVE_BULLET_CHANCE = 0.2f;
+    private const float SELF_PRESERVE_INTERVAL = 6f;
     private const float HOP_HOLD_MAX = 7f;
     private const float AMBUSH_TIME_MAX = 40f;
 
@@ -290,6 +295,7 @@ public class ShotReactionClass : BotComponentClassBase
                 _expireTime = Mathf.Max(_expireTime, now + 0.5f);
             }
             LogEvent($"{(hit ? "hit" : "bullet")} at {distance:0} m while {state} is in effect, reaction extended, no new roll");
+            TrySelfPreservation(hit, now);
             return;
         }
         Roll(enemy, distance, hit, now);
@@ -442,6 +448,37 @@ public class ShotReactionClass : BotComponentClassBase
         SprintWhileInvestigating = true;
         decision = ECombatDecision.Search;
         return true;
+    }
+
+    private void TrySelfPreservation(bool hit, float now)
+    {
+        if (Relocating || _vaguePositionTime <= 0f || Bot.Cover.CoverInUse == null || now < _nextSelfPreserve)
+        {
+            return;
+        }
+        float chance = hit ? SELF_PRESERVE_HIT_CHANCE : SELF_PRESERVE_BULLET_CHANCE;
+        switch (Bot.Info.Personality)
+        {
+            case EPersonality.Wreckless:
+            case EPersonality.GigaChad:
+            case EPersonality.Chad:
+                chance /= GlobalSettings.Fork.ShotAggressivePull;
+                break;
+            case EPersonality.Rat:
+            case EPersonality.Timmy:
+            case EPersonality.Coward:
+                chance = Mathf.Min(1f, chance * GlobalSettings.Fork.ShotTimidPull);
+                break;
+        }
+        if (Random.value > chance)
+        {
+            return;
+        }
+        _nextSelfPreserve = now + SELF_PRESERVE_INTERVAL;
+        if (Bot.Cover.RelocateFromFire(_vaguePosition))
+        {
+            LogEvent($"self preservation: shot at in cover, moving to another cover (chance {chance:0.00})");
+        }
     }
 
     private float HopHoldTime()
@@ -1014,6 +1051,7 @@ public class ShotReactionClass : BotComponentClassBase
     private bool _followDone;
     private float _investigateStart;
     private float _hopHold = 5f;
+    private float _nextSelfPreserve;
     private float _ambushUntil;
     private float _traceUntil;
     private float _nextTrace;

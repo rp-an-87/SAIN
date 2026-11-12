@@ -276,6 +276,50 @@ public class SAINCoverClass : BotComponentClassBase
         return true;
     }
 
+    /// <summary>
+    /// Fork: self preservation. The bot is being shot at in its cover: it drops that cover and sprints to another one that is not closer to the
+    /// shooter and not right next to the old one (the reload relocation filter). False = no other cover point to go to.
+    /// </summary>
+    public bool RelocateFromFire(Vector3 shotArea)
+    {
+        if (CoverInUse == null)
+        {
+            return false;
+        }
+        float minFromOld = GlobalSettingsClass.Instance.Fork.RelocateMinDistanceFromOldCover;
+        float botDistance = Vector3.Distance(Bot.Position, shotArea);
+        bool any = false;
+        foreach (CoverPoint point in CoverPoints)
+        {
+            if (
+                point != null
+                && !point.CoverData.IsBad
+                && point != CoverInUse
+                && (point.Position - CoverInUse.Position).sqrMagnitude >= minFromOld * minFromOld
+                && Vector3.Distance(point.Position, shotArea) >= botDistance
+            )
+            {
+                any = true;
+                break;
+            }
+        }
+        if (!any)
+        {
+            return false;
+        }
+        _relocateAvoidPoint = CoverInUse;
+        _relocateEnemyPos = shotArea;
+        _relocateMinEnemyDist = botDistance;
+        _relocateUntil = Time.time + SHOT_COVER_ACTIVE_TIME;
+        _forceSprintUntil = Time.time + SHOT_COVER_ACTIVE_TIME;
+        _shotAwayUntil = 0f;
+        _advanceActive = false;
+        CoverInUse = null;
+        CoverPoint_MovingTo = null;
+        _timeLastUpdate = 0f;
+        return true;
+    }
+
     private static bool IsAdvancePoint(CoverPoint point, Vector3 area, float botDistance)
     {
         return Vector3.Distance(point.Position, area) <= botDistance - ADVANCE_MIN_GAIN && point.PathData.PathLength <= ADVANCE_MAX_PATH;
