@@ -82,6 +82,10 @@ public class ShotReactionClass : BotComponentClassBase
     /// <summary>In an advance the bot holds each cover this long (scaled by personality) before it runs to the next one.</summary>
     private const float HOP_HOLD_MIN = 3f;
 
+    /// <summary>After a retreat arrives the bot holds cover this long (scaled by personality), then investigates cover to cover instead of strolling back.</summary>
+    private const float POST_RETREAT_HOLD_MIN = 30f;
+    private const float POST_RETREAT_HOLD_MAX = 60f;
+
     /// <summary>A hop that has not reached its cover after this long, or has stalled (not moving) for HOP_STALL_TIME, is abandoned; no new hop for HOP_RETRY_DELAY.</summary>
     private const float HOP_TIMEOUT = 12f;
     private const float HOP_STALL_TIME = 3f;
@@ -652,6 +656,40 @@ public class ShotReactionClass : BotComponentClassBase
         _expireTime = now + fork.ShotFightOnDuration;
     }
 
+    /// <summary>
+    /// The retreat is over and the bot has not seen the shooter: it takes the nearest cover and holds it, then investigates cover to cover
+    /// (the same Investigate state), so its way back is never SAIN's plain upright search walk.
+    /// </summary>
+    private void StartPostRetreat(Enemy enemy, float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float hold = Random.Range(POST_RETREAT_HOLD_MIN, POST_RETREAT_HOLD_MAX);
+        switch (Bot.Info.Personality)
+        {
+            case EPersonality.Wreckless:
+            case EPersonality.GigaChad:
+            case EPersonality.Chad:
+                hold /= fork.ShotAggressivePull;
+                break;
+            case EPersonality.Rat:
+            case EPersonality.Timmy:
+            case EPersonality.Coward:
+                hold *= fork.ShotTimidPull;
+                break;
+        }
+        _enemy = enemy;
+        Outcome = EShotReaction.Hunt;
+        _followDone = true;
+        _hideUntil = now + hold;
+        _investigateStart = _hideUntil;
+        _ambushUntil = 0f;
+        _hopHold = HopHoldTime();
+        _inCoverSince = -1f;
+        _expireTime = _hideUntil + fork.ShotHuntTimeMax;
+        Bot.Cover.StartShotCover(_vaguePosition, false);
+        LogEvent($"retreat over: holding cover for {hold:0} s, then investigating cover to cover");
+    }
+
     /// <summary>Go looking for the shooter: the normal search toward the vague area, until the shooter is seen or the time runs out.</summary>
     private void StartInvestigate(float now)
     {
@@ -738,6 +776,10 @@ public class ShotReactionClass : BotComponentClassBase
         {
             string why = now >= _relocateEnd ? "time limit" : arrived ? "arrived" : !Enabled ? "switched off" : "the bot sees the shooter";
             StopRelocating(now, why);
+            if (Enabled && (arrived || now >= _relocateEnd) && !(SeesShooter(enemy) && enemy.CanShoot))
+            {
+                StartPostRetreat(enemy, now);
+            }
             return false;
         }
         return true;
