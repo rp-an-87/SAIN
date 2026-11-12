@@ -78,6 +78,10 @@ public class ShotReactionClass : BotComponentClassBase
 
     /// <summary>After stopping, the bot holds cover and watches this long (scaled by personality), then the state ends.</summary>
     private const float AMBUSH_TIME_MIN = 20f;
+
+    /// <summary>In an advance the bot holds each cover this long (scaled by personality) before it runs to the next one.</summary>
+    private const float HOP_HOLD_MIN = 3f;
+    private const float HOP_HOLD_MAX = 7f;
     private const float AMBUSH_TIME_MAX = 40f;
 
     private enum EFollowUp
@@ -404,9 +408,57 @@ public class ShotReactionClass : BotComponentClassBase
             return true;
         }
 
+        // Cover to cover toward the vague area: hold each cover for a few seconds (watching, firing bursts if in reach), then sprint to the next
+        // cover point that is closer to the area. Without a closer point the bot holds where it is.
+        Vector3 area = _vaguePosition;
+        if (Bot.Cover.AdvanceActive)
+        {
+            decision = ECombatDecision.SeekCover;
+            return true;
+        }
+        bool inCover = Bot.Cover.CoverInUse != null;
+        if (inCover && Bot.Cover.TimeHeldInCover < _hopHold)
+        {
+            decision = ECombatDecision.SeekCover;
+            return true;
+        }
+        if (Bot.Cover.StartAdvanceHop(area))
+        {
+            _hopHold = HopHoldTime();
+            LogEvent("advance: next cover closer to the shot area");
+            decision = ECombatDecision.SeekCover;
+            return true;
+        }
+        if (inCover)
+        {
+            // Nothing closer to hop to: hold and watch (ambush), then the state ends.
+            _ambushUntil = now + Random.Range(AMBUSH_TIME_MIN, AMBUSH_TIME_MAX);
+            LogEvent("investigate: no cover closer to the shot area, holding cover and watching");
+            decision = ECombatDecision.SeekCover;
+            return true;
+        }
+
+        // In the open with no cover to hop to: last resort, SAIN's own search at a run.
         SprintWhileInvestigating = true;
         decision = ECombatDecision.Search;
         return true;
+    }
+
+    private float HopHoldTime()
+    {
+        float time = Random.Range(HOP_HOLD_MIN, HOP_HOLD_MAX);
+        switch (Bot.Info.Personality)
+        {
+            case EPersonality.Wreckless:
+            case EPersonality.GigaChad:
+            case EPersonality.Chad:
+                return time / GlobalSettings.Fork.ShotAggressivePull;
+            case EPersonality.Rat:
+            case EPersonality.Timmy:
+            case EPersonality.Coward:
+                return time * GlobalSettings.Fork.ShotTimidPull;
+        }
+        return time;
     }
 
     /// <summary>Weighted choice of what the bot does once its hide is over.</summary>
@@ -486,6 +538,7 @@ public class ShotReactionClass : BotComponentClassBase
         _hideUntil = now;
         _investigateStart = now;
         _ambushUntil = 0f;
+        _hopHold = HopHoldTime();
         _expireTime = now + fork.ShotHuntTimeMax;
     }
 
@@ -664,6 +717,7 @@ public class ShotReactionClass : BotComponentClassBase
         StartTrace(Time.time);
         SprintWhileInvestigating = false;
         _ambushUntil = 0f;
+        Bot.Cover.StopAdvance();
         Outcome = EShotReaction.None;
         _hideUntil = 0f;
         _expireTime = 0f;
@@ -938,6 +992,7 @@ public class ShotReactionClass : BotComponentClassBase
             case EShotReaction.Hunt:
                 _hideUntil = now + Random.Range(Mathf.Min(fork.ShotAssessTimeMin, fork.ShotAssessTimeMax), Mathf.Max(fork.ShotAssessTimeMin, fork.ShotAssessTimeMax));
                 _investigateStart = _hideUntil;
+                _hopHold = HopHoldTime();
                 _expireTime = now + Mathf.Max(fork.ShotHuntTimeMax, fork.ShotAssessTimeMax);
                 break;
 
@@ -958,6 +1013,7 @@ public class ShotReactionClass : BotComponentClassBase
     private float _inCoverSince = -1f;
     private bool _followDone;
     private float _investigateStart;
+    private float _hopHold = 5f;
     private float _ambushUntil;
     private float _traceUntil;
     private float _nextTrace;

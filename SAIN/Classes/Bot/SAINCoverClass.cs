@@ -176,6 +176,7 @@ public class SAINCoverClass : BotComponentClassBase
         }
         filterForReloadRelocation();
         filterAwayFromShot();
+        filterTowardArea();
 
         _coverPoints.Sort((x, y) => x.PathData.PathLength.CompareTo(y.PathData.PathLength));
         for (int i = 0; i < _coverPoints.Count; i++)
@@ -216,6 +217,95 @@ public class SAINCoverClass : BotComponentClassBase
         {
             CoverPoint_MovingTo = null;
             _timeLastUpdate = 0f;
+        }
+    }
+
+    private const float ADVANCE_MIN_GAIN = 6f;
+    private const float ADVANCE_MAX_PATH = 45f;
+    private bool _advanceActive;
+    private Vector3 _advanceArea;
+    private CoverPoint _advanceFrom;
+    private float _holdSince;
+
+    /// <summary>True while the bot runs to its next advance cover point (cover to cover toward the vague shot area).</summary>
+    public bool AdvanceActive
+    {
+        get { return _advanceActive; }
+    }
+
+    /// <summary>How long the bot has been in its current cover (0 if it is not in cover).</summary>
+    public float TimeHeldInCover
+    {
+        get { return CoverInUse != null ? Time.time - _holdSince : 0f; }
+    }
+
+    public void StopAdvance()
+    {
+        _advanceActive = false;
+        _advanceFrom = null;
+    }
+
+    /// <summary>
+    /// Fork: one hop of a cover-to-cover advance. Needs a cover point that is clearly closer to the area than the bot is now and not too far to run.
+    /// False = no such point (the bot stays where it is). The bot drops its current cover and sprints to the chosen one.
+    /// </summary>
+    public bool StartAdvanceHop(Vector3 area)
+    {
+        float botDistance = Vector3.Distance(Bot.Position, area);
+        bool any = false;
+        foreach (CoverPoint point in CoverPoints)
+        {
+            if (point != null && !point.CoverData.IsBad && point != CoverInUse && IsAdvancePoint(point, area, botDistance))
+            {
+                any = true;
+                break;
+            }
+        }
+        if (!any)
+        {
+            return false;
+        }
+        _advanceActive = true;
+        _advanceArea = area;
+        _advanceFrom = CoverInUse;
+        _shotAwayUntil = 0f;
+        _forceSprintUntil = Time.time + SHOT_COVER_ACTIVE_TIME;
+        CoverInUse = null;
+        CoverPoint_MovingTo = null;
+        _timeLastUpdate = 0f;
+        return true;
+    }
+
+    private static bool IsAdvancePoint(CoverPoint point, Vector3 area, float botDistance)
+    {
+        return Vector3.Distance(point.Position, area) <= botDistance - ADVANCE_MIN_GAIN && point.PathData.PathLength <= ADVANCE_MAX_PATH;
+    }
+
+    private void filterTowardArea()
+    {
+        if (!_advanceActive)
+        {
+            return;
+        }
+        float botDistance = Vector3.Distance(Bot.Position, _advanceArea);
+        _relocateTemp.Clear();
+        foreach (CoverPoint point in _coverPoints)
+        {
+            if (point != _advanceFrom && IsAdvancePoint(point, _advanceArea, botDistance))
+            {
+                _relocateTemp.Add(point);
+            }
+        }
+        if (_relocateTemp.Count > 0)
+        {
+            LogShotCover($"advance: {_relocateTemp.Count} of {_coverPoints.Count} cover points are closer to the shot area");
+            _coverPoints.Clear();
+            _coverPoints.AddRange(_relocateTemp);
+        }
+        else
+        {
+            LogShotCover("advance: no cover point closer to the shot area, nearest cover used");
+            _advanceActive = false;
         }
     }
 
@@ -453,6 +543,8 @@ public class SAINCoverClass : BotComponentClassBase
             if (straightStatus == CoverStatus.InCover || pathStatus == CoverStatus.InCover)
             {
                 CoverInUse = CoverPoint_MovingTo;
+                _holdSince = Time.time;
+                _advanceActive = false;
                 CoverPoint_MovingTo = null;
                 _shallSprint = false;
                 SetCoverSeekingState(ECoverSeekingState.HoldInCover);
