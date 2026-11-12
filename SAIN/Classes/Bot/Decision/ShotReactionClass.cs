@@ -1357,11 +1357,8 @@ public class ShotReactionClass : BotComponentClassBase
             score -= 0.5f;
             parts += ", hurt -0.5";
         }
-        if (!Bot.Player.MovementContext.CanSprint)
-        {
-            score += 2f;
-            parts += ", cannot sprint +2";
-        }
+        // (No "cannot sprint" bonus: MovementContext.CanSprint is also false for tired, healing or sprint-blocked bots, not just crippled legs.
+        // A proper leg-damage test belongs to the crippling-damage work.)
         why = parts;
         return score;
     }
