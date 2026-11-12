@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using EFT;
 using SAIN.Components;
 using SAIN.Models.Enums;
@@ -754,11 +755,262 @@ public class ShotReactionClass : BotComponentClassBase
 
     private bool BreaksLineOfSight(Vector3 shotArea, Vector3 point)
     {
-        if (_solidMask < 0)
+        return SAINCoverClass.BlocksSight(shotArea, point);
+    }
+
+    // ---- retreat route and destination ----
+
+    private const float WAYPOINT_SWITCH_DISTANCE = 6f;
+    private const float WAYPOINT_TIMEOUT = 14f;
+    private const float DESTINATION_COVER_RADIUS = 4f;
+
+    private enum ERoute
+    {
+        Direct,
+        Bend,
+        ZigZag,
+        CoverFirst,
+    }
+
+    private readonly List<Vector3> _route = [];
+    private int _routeIndex;
+    private float _legStart;
+    private readonly NavMeshPath _legPath = new();
+    private readonly Collider[] _destColliders = new Collider[16];
+    private int _destMask = -1;
+
+    /// <summary>The point the bot is running to right now: the next waypoint of the retreat route, the destination on the last leg.</summary>
+    public Vector3 CurrentWaypoint
+    {
+        get { return _routeIndex < _route.Count ? _route[_routeIndex] : RelocatePoint; }
+    }
+
+    /// <summary>Moves on to the next leg when the current waypoint is reached (or the leg takes too long). True = the leg changed.</summary>
+    public bool UpdateRouteProgress()
+    {
+        if (!Relocating || _routeIndex >= _route.Count - 1)
         {
-            _solidMask = (1 << LayerMask.NameToLayer("Terrain")) | (1 << LayerMask.NameToLayer("HighPolyCollider"));
+            return false;
         }
-        return Physics.Linecast(shotArea + (Vector3.up * 1.5f), point + (Vector3.up * 1.4f), _solidMask);
+        bool reached = (Bot.Position - _route[_routeIndex]).sqrMagnitude < WAYPOINT_SWITCH_DISTANCE * WAYPOINT_SWITCH_DISTANCE;
+        if (!reached && Time.time - _legStart < WAYPOINT_TIMEOUT)
+        {
+            return false;
+        }
+        _routeIndex++;
+        _legStart = Time.time;
+        return true;
+    }
+
+    /// <summary>How well a retreat destination hides the bot: solid cover next to it, or a bush that is far and out of sight. 0 = open ground.</summary>
+    private float DestinationCoverQuality(Vector3 point, Vector3 shotArea)
+    {
+        if (_destMask < 0)
+        {
+            _destMask = (1 << LayerMask.NameToLayer("HighPolyCollider")) | (1 << LayerMask.NameToLayer("Foliage"));
+        }
+        int foliageLayer = LayerMask.NameToLayer("Foliage");
+        int count = Physics.OverlapSphereNonAlloc(point, DESTINATION_COVER_RADIUS, _destColliders, _destMask);
+        float best = 0f;
+        for (int i = 0; i < count; i++)
+        {
+            Collider collider = _destColliders[i];
+            if (collider == null)
+            {
+                continue;
+            }
+            Vector3 size = collider.bounds.size;
+            if (size.y < 0.75f || (size.x < 0.25f && size.z < 0.25f) || size.x > 30f || size.y > 30f || size.z > 30f)
+            {
+                continue;
+            }
+            float quality = collider.gameObject.layer == foliageLayer ? SAINCoverClass.FoliageQuality(point, shotArea) : 1f;
+            if (quality > best)
+            {
+                best = quality;
+            }
+        }
+        return best * 1.5f;
+    }
+
+    private bool LegOk(Vector3 a, Vector3 b)
+    {
+        if (!NavMesh.CalculatePath(a, b, NavMesh.AllAreas, _legPath) || _legPath.status != NavMeshPathStatus.PathComplete)
+        {
+            return false;
+        }
+        float length = 0f;
+        Vector3[] corners = _legPath.corners;
+        for (int i = 0; i < corners.Length - 1; i++)
+        {
+            length += Vector3.Distance(corners[i], corners[i + 1]);
+        }
+        return length <= (Vector3.Distance(a, b) * 1.6f) + 5f;
+    }
+
+    private static bool TryOffsetPoint(Vector3 from, Vector3 dest, float t, float offset, out Vector3 point)
+    {
+        Vector3 dir = dest - from;
+        dir.y = 0f;
+        dir.Normalize();
+        Vector3 perpendicular = new(-dir.z, 0f, dir.x);
+        Vector3 target = Vector3.Lerp(from, dest, t) + (perpendicular * offset);
+        Vector3? sampled = NavMeshHelpers.GetNearbyNavMeshPoint(target, 4f);
+        point = sampled ?? Vector3.zero;
+        return sampled != null;
+    }
+
+    /// <summary>Share of the straight line to the destination that the shot area can see (0 = fully hidden, 1 = fully exposed).</summary>
+    private float LineExposure(Vector3 from, Vector3 dest, Vector3 shotArea)
+    {
+        const int SAMPLES = 8;
+        int visible = 0;
+        for (int i = 1; i <= SAMPLES; i++)
+        {
+            Vector3 point = Vector3.Lerp(from, dest, i / (SAMPLES + 1f));
+            if (!SAINCoverClass.BlocksSight(shotArea, point))
+            {
+                visible++;
+            }
+        }
+        return visible / (float)SAMPLES;
+    }
+
+    private ERoute PickRoute(float exposure)
+    {
+        float direct = 0.25f;
+        float bend = 0.35f;
+        float zigzag = 0.20f;
+        float coverFirst = 0.20f;
+        if (exposure > 0.5f)
+        {
+            // Mostly in the shooter's sight: the robotic straight run is the worst choice.
+            direct = 0.05f;
+            zigzag = 0.25f;
+            coverFirst = 0.35f;
+        }
+        switch (Bot.Info.Personality)
+        {
+            case EPersonality.Wreckless:
+            case EPersonality.GigaChad:
+            case EPersonality.Chad:
+                direct *= 1.5f;
+                bend *= 0.8f;
+                zigzag *= 0.8f;
+                coverFirst *= 0.8f;
+                break;
+            case EPersonality.Rat:
+            case EPersonality.Timmy:
+            case EPersonality.Coward:
+                direct *= 0.6f;
+                zigzag *= 1.3f;
+                coverFirst *= 1.4f;
+                break;
+        }
+        float pick = Random.value * (direct + bend + zigzag + coverFirst);
+        if (pick < direct)
+        {
+            return ERoute.Direct;
+        }
+        if (pick < direct + bend)
+        {
+            return ERoute.Bend;
+        }
+        if (pick < direct + bend + zigzag)
+        {
+            return ERoute.ZigZag;
+        }
+        return ERoute.CoverFirst;
+    }
+
+    /// <summary>Plans the retreat as a route: sometimes straight, sometimes bent, zig-zagged or first out of sight. The last point is always the destination.</summary>
+    private void BuildRoute(Vector3 from, Vector3 dest, Vector3 shotArea)
+    {
+        _route.Clear();
+        _routeIndex = 0;
+        _legStart = Time.time;
+        ERoute variant = ERoute.Direct;
+        float exposure = -1f;
+        if ((dest - from).magnitude > 20f)
+        {
+            exposure = LineExposure(from, dest, shotArea);
+            variant = PickRoute(exposure);
+            if (variant != ERoute.Direct && !TryBuildVariant(variant, from, dest, shotArea))
+            {
+                _route.Clear();
+                variant = ERoute.Bend;
+                if (!TryBuildVariant(variant, from, dest, shotArea))
+                {
+                    _route.Clear();
+                    variant = ERoute.Direct;
+                }
+            }
+        }
+        _route.Add(dest);
+        LogEvent($"route: {variant}, {_route.Count - 1} waypoint(s), straight line {(exposure < 0f ? "short" : $"{exposure * 100f:0}% exposed")}");
+    }
+
+    private bool TryBuildVariant(ERoute variant, Vector3 from, Vector3 dest, Vector3 shotArea)
+    {
+        float side = Random.value < 0.5f ? -1f : 1f;
+        switch (variant)
+        {
+            case ERoute.Bend:
+            {
+                if (!TryOffsetPoint(from, dest, Random.Range(0.35f, 0.65f), side * Random.Range(8f, 20f), out Vector3 waypoint) || !LegOk(from, waypoint) || !LegOk(waypoint, dest))
+                {
+                    return false;
+                }
+                _route.Add(waypoint);
+                return true;
+            }
+            case ERoute.ZigZag:
+            {
+                if (
+                    !TryOffsetPoint(from, dest, Random.Range(0.25f, 0.4f), side * Random.Range(8f, 18f), out Vector3 first)
+                    || !TryOffsetPoint(from, dest, Random.Range(0.6f, 0.75f), -side * Random.Range(8f, 18f), out Vector3 second)
+                    || !LegOk(from, first)
+                    || !LegOk(first, second)
+                    || !LegOk(second, dest)
+                )
+                {
+                    return false;
+                }
+                _route.Add(first);
+                _route.Add(second);
+                return true;
+            }
+            case ERoute.CoverFirst:
+            {
+                // The nearest point (10 to 26 m) that the shot area cannot see, then on to the destination.
+                Vector3 away = from - shotArea;
+                away.y = 0f;
+                if (away.sqrMagnitude < 1f)
+                {
+                    return false;
+                }
+                away.Normalize();
+                float[] radii = [10f, 18f, 26f];
+                float[] angles = [0f, 40f, -40f, 80f, -80f];
+                for (int r = 0; r < radii.Length; r++)
+                {
+                    int offset = Random.Range(0, angles.Length);
+                    for (int a = 0; a < angles.Length; a++)
+                    {
+                        Vector3 direction = Quaternion.Euler(0f, angles[(a + offset) % angles.Length], 0f) * away;
+                        Vector3? sampled = NavMeshHelpers.GetNearbyNavMeshPoint(from + (direction * radii[r]), 4f);
+                        if (sampled == null || !SAINCoverClass.BlocksSight(shotArea, sampled.Value) || !LegOk(from, sampled.Value) || !LegOk(sampled.Value, dest))
+                        {
+                            continue;
+                        }
+                        _route.Add(sampled.Value);
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+        return false;
     }
 
     private bool TryRelocatePass(float? distanceOverride, bool requireBrokenLos)
@@ -781,6 +1033,10 @@ public class ShotReactionClass : BotComponentClassBase
         float distance = distanceOverride ?? Random.Range(min, max);
         float currentToShot = (from - shotArea).magnitude;
 
+        // Every valid point on the three rings is a candidate; the best one wins (hiding place next to it, a little randomness so retreats differ).
+        bool found = false;
+        float bestScore = float.MinValue;
+        Vector3 best = Vector3.zero;
         for (int step = 0; step < 3; step++)
         {
             float stepDistance = distance * (1f - (step * 0.25f));
@@ -801,25 +1057,37 @@ public class ShotReactionClass : BotComponentClassBase
                 {
                     continue;
                 }
+                float score = ((2 - step) * 0.25f) + DestinationCoverQuality(sampled.Value, shotArea) + Random.Range(0f, 0.6f);
+                if (found && score <= bestScore)
+                {
+                    continue;
+                }
                 if (!Bot.Mover.CanGoToPoint(sampled.Value, out _, true))
                 {
                     continue;
                 }
-                RelocatePoint = sampled.Value;
-                Bot.Cover.ClearShotState();
-                Relocating = true;
-                _relocateEnd = Time.time + fork.ShotRelocateTimeMax;
-                Outcome = EShotReaction.None;
-                _hideUntil = 0f;
-                _expireTime = 0f;
-                if (fork.ShotReactionLog)
-                {
-                    Logger.LogInfoAlways(
-                        $"[ShotReaction] t={Time.time:0.0} {Bot.name}: relocating {(sampled.Value - from).magnitude:0} m, {(sampled.Value - shotArea).magnitude:0} m from the shot area"
-                    );
-                }
-                return true;
+                found = true;
+                bestScore = score;
+                best = sampled.Value;
             }
+        }
+        if (found)
+        {
+            RelocatePoint = best;
+            Bot.Cover.ClearShotState();
+            Relocating = true;
+            _relocateEnd = Time.time + fork.ShotRelocateTimeMax;
+            Outcome = EShotReaction.None;
+            _hideUntil = 0f;
+            _expireTime = 0f;
+            if (fork.ShotReactionLog)
+            {
+                Logger.LogInfoAlways(
+                    $"[ShotReaction] t={Time.time:0.0} {Bot.name}: relocating {(best - from).magnitude:0} m, {(best - shotArea).magnitude:0} m from the shot area"
+                );
+            }
+            BuildRoute(from, best, shotArea);
+            return true;
         }
         if (!requireBrokenLos && fork.ShotReactionLog)
         {

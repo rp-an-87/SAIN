@@ -185,7 +185,8 @@ public class SAINCoverClass : BotComponentClassBase
             bool anySolid = false;
             for (int i = 0; i < _coverPoints.Count; i++)
             {
-                if (!IsFoliage(_coverPoints[i]))
+                // A bush far from the shot area and out of its sight is as good as solid cover.
+                if (!IsFoliage(_coverPoints[i]) || FoliageQuality(_coverPoints[i].Position, _shotAwayFrom) >= 0.9f)
                 {
                     anySolid = true;
                     break;
@@ -199,7 +200,12 @@ public class SAINCoverClass : BotComponentClassBase
         }
 
         // Foliage (bushes) hides a bot but stops nothing and is a poor place to stay: it only wins when it is FOLIAGE_PATH_PENALTY closer than solid cover.
-        _coverPoints.Sort((x, y) => CoverCost(x).CompareTo(CoverCost(y)));
+        _costTemp.Clear();
+        for (int i = 0; i < _coverPoints.Count; i++)
+        {
+            _costTemp[_coverPoints[i]] = CoverCost(_coverPoints[i]);
+        }
+        _coverPoints.Sort((x, y) => _costTemp[x].CompareTo(_costTemp[y]));
         for (int i = 0; i < _coverPoints.Count; i++)
         {
             CoverPoint coverPoint = _coverPoints[i];
@@ -243,9 +249,39 @@ public class SAINCoverClass : BotComponentClassBase
         get { return IsFoliage(CoverInUse); }
     }
 
-    private static float CoverCost(CoverPoint point)
+    /// <summary>A bush is a bad place to stay near the shot area, but a fine ambush spot far from it and out of its sight: the penalty fades with that.</summary>
+    private const float FOLIAGE_FADE_START = 30f;
+    private const float FOLIAGE_FADE_END = 90f;
+
+    private static int _solidSightMask = -1;
+    private readonly Dictionary<CoverPoint, float> _costTemp = [];
+
+    /// <summary>True if something solid (terrain, high poly colliders) is between the two points.</summary>
+    public static bool BlocksSight(Vector3 shotArea, Vector3 point)
     {
-        return point.PathData.PathLength + (IsFoliage(point) ? FOLIAGE_PATH_PENALTY : 0f);
+        if (_solidSightMask < 0)
+        {
+            _solidSightMask = (1 << LayerMask.NameToLayer("Terrain")) | (1 << LayerMask.NameToLayer("HighPolyCollider"));
+        }
+        return Physics.Linecast(shotArea + (Vector3.up * 1.5f), point + (Vector3.up * 1.4f), _solidSightMask);
+    }
+
+    /// <summary>0 = a bad bush (near the shot area or in its sight), 1 = a good one (far enough and out of sight).</summary>
+    public static float FoliageQuality(Vector3 point, Vector3 shotArea)
+    {
+        float far = Mathf.Clamp01((Vector3.Distance(point, shotArea) - FOLIAGE_FADE_START) / (FOLIAGE_FADE_END - FOLIAGE_FADE_START));
+        return far > 0f && BlocksSight(shotArea, point) ? far : 0f;
+    }
+
+    private float CoverCost(CoverPoint point)
+    {
+        float cost = point.PathData.PathLength;
+        if (IsFoliage(point))
+        {
+            float quality = _shotLogUntil >= Time.time ? FoliageQuality(point.Position, _shotAwayFrom) : 0f;
+            cost += FOLIAGE_PATH_PENALTY * (1f - quality);
+        }
+        return cost;
     }
 
     private bool _relocateSolidOnly;

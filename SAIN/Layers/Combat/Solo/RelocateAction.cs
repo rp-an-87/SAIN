@@ -18,12 +18,17 @@ internal class RelocateAction(BotOwner bot) : BotAction(bot, "Relocate"), IBotAc
         Bot.Mover.SetTargetMoveSpeed(1f);
         Bot.Mover.SetTargetPose(1f);
 
+        // A leg of the route is done: the next one starts at once (no pause at the waypoint).
+        if (Bot.ShotReaction.UpdateRouteProgress())
+        {
+            _nextRepathTime = 0f;
+        }
         if (_nextRepathTime > Time.time)
         {
             return;
         }
         _nextRepathTime = Time.time + REPATH_INTERVAL;
-        Bot.Mover.RunToPoint(Bot.ShotReaction.RelocatePoint, true, 2f, ESprintUrgency.High);
+        Bot.Mover.RunToPoint(Bot.ShotReaction.CurrentWaypoint, true, 2f, ESprintUrgency.High);
     }
 
     public override void OnSteeringTicked()
