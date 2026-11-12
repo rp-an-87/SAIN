@@ -83,9 +83,13 @@ public class ShotReactionClass : BotComponentClassBase
     private const float HOP_HOLD_MIN = 3f;
 
     /// <summary>Self preservation: a hit (or a close bullet) while the bot shelters in cover makes it look for another cover. Chances, scaled by personality; at most one move per interval.</summary>
-    private const float SELF_PRESERVE_HIT_CHANCE = 0.7f;
-    private const float SELF_PRESERVE_BULLET_CHANCE = 0.2f;
-    private const float SELF_PRESERVE_INTERVAL = 6f;
+    private const float SELF_PRESERVE_HIT_CHANCE = 0.9f;
+    private const float SELF_PRESERVE_BULLET_CHANCE = 0.5f;
+    private const float SELF_PRESERVE_INTERVAL = 3f;
+
+    /// <summary>A hit (or a close bullet) while investigating breaks the advance: the bot runs for cover and reassesses (a new Cover reaction, which ends in a new follow-up pick).</summary>
+    private const float INVESTIGATE_BREAK_HIT_CHANCE = 1f;
+    private const float INVESTIGATE_BREAK_BULLET_CHANCE = 0.5f;
     private const float HOP_HOLD_MAX = 7f;
     private const float AMBUSH_TIME_MAX = 40f;
 
@@ -295,6 +299,10 @@ public class ShotReactionClass : BotComponentClassBase
                 _expireTime = Mathf.Max(_expireTime, now + 0.5f);
             }
             LogEvent($"{(hit ? "hit" : "bullet")} at {distance:0} m while {state} is in effect, reaction extended, no new roll");
+            if (TryBreakInvestigate(enemy, distance, hit, now))
+            {
+                return;
+            }
             TrySelfPreservation(hit, now);
             return;
         }
@@ -450,9 +458,45 @@ public class ShotReactionClass : BotComponentClassBase
         return true;
     }
 
+    /// <summary>
+    /// Getting shot at again while hunting is a reason to run: the bot goes back to cover and reassesses (Cover reaction, then a new follow-up pick).
+    /// A fight is never interrupted by this.
+    /// </summary>
+    private bool TryBreakInvestigate(Enemy enemy, float distance, bool hit, float now)
+    {
+        if (Outcome != EShotReaction.Hunt || now < _hideUntil || Relocating)
+        {
+            return false;
+        }
+        float chance = hit ? INVESTIGATE_BREAK_HIT_CHANCE : INVESTIGATE_BREAK_BULLET_CHANCE;
+        switch (Bot.Info.Personality)
+        {
+            case EPersonality.Wreckless:
+            case EPersonality.GigaChad:
+            case EPersonality.Chad:
+                chance /= GlobalSettings.Fork.ShotAggressivePull;
+                break;
+            case EPersonality.Rat:
+            case EPersonality.Timmy:
+            case EPersonality.Coward:
+                chance = Mathf.Min(1f, chance * GlobalSettings.Fork.ShotTimidPull);
+                break;
+        }
+        if (Random.value > chance)
+        {
+            return false;
+        }
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        Bot.Cover.StopAdvance();
+        LogEvent($"shot at again while investigating ({(hit ? "hit" : "bullet")} at {distance:0} m): running for cover to reassess");
+        Apply(enemy, EShotReaction.Cover, distance / reach, now, GlobalSettings.Fork);
+        return true;
+    }
+
     private void TrySelfPreservation(bool hit, float now)
     {
-        if (Relocating || _vaguePositionTime <= 0f || Bot.Cover.CoverInUse == null || now < _nextSelfPreserve)
+        // A fight is never interrupted: only the sheltering states move the bot out of cover that is being shot at.
+        if (Outcome == EShotReaction.Fight || Relocating || _vaguePositionTime <= 0f || Bot.Cover.CoverInUse == null || now < _nextSelfPreserve)
         {
             return;
         }
