@@ -62,7 +62,7 @@ public class ShotReactionClass : BotComponentClassBase
     private const float VISIBLE_GRACE = 1f;
 
     /// <summary>Within this fraction of the bot's reach a visible shooter counts as seen immediately.</summary>
-    private const float CLOSE_SIGHT_REACH_FRACTION = 0.25f;
+    private const float CLOSE_SIGHT_REACH_FRACTION = 0.4f;
 
     /// <summary>Once the bot has seen the shooter it keeps counting as seen for this long (a flicker of the vision flag must not restart the reaction).</summary>
     private const float SEEN_HOLD = 4f;
@@ -263,12 +263,17 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         float now = Time.time;
-        bool hiding = (Outcome == EShotReaction.Cover || Outcome == EShotReaction.Suppress) && now < _hideUntil;
-        if (Outcome != EShotReaction.None && enemy == _enemy && (now < _nextRollTime || hiding))
+        // A state is "in effect" until it expires (hide, fight, fight on, investigate) or while the bot retreats. A shot then never starts a new roll.
+        bool inEffect = (Outcome != EShotReaction.None && now < _expireTime) || (Relocating && enemy == _forgetEnemy);
+        if (enemy == _enemy && (inEffect || now < _nextRollTime))
         {
-            // Same fight, too soon for a new roll: the shot only keeps the reaction (and the memory of the shooter) going.
-            _expireTime = Mathf.Max(_expireTime, now + 0.5f);
-            LogEvent($"{(hit ? "hit" : "bullet")} at {distance:0} m while {Outcome} is active ({(hiding ? "hiding" : "reroll cooldown")}), reaction extended, no new roll");
+            // Same fight: the shot only keeps the reaction going.
+            string state = Relocating ? "Retreat" : Outcome.ToString();
+            if (Outcome != EShotReaction.None)
+            {
+                _expireTime = Mathf.Max(_expireTime, now + 0.5f);
+            }
+            LogEvent($"{(hit ? "hit" : "bullet")} at {distance:0} m while {state} is in effect, reaction extended, no new roll");
             return;
         }
         Roll(enemy, distance, hit, now);
@@ -836,8 +841,9 @@ public class ShotReactionClass : BotComponentClassBase
         Vector3 shotArea = now - _vaguePositionTime < VAGUE_POSITION_MAX_AGE ? _vaguePosition : enemy.EnemyPosition;
         if (outcome != EShotReaction.Fight)
         {
-            // Suppress takes the nearest cover (it fights from there, it does not run away); the others prefer cover away from the shot.
-            Bot.Cover.StartShotCover(shotArea, outcome != EShotReaction.Suppress);
+            // Suppress and Hunt take the nearest cover and never flee (they fight or advance, with no cover points SAIN's own advance runs);
+            // Cover prefers cover away from the shot.
+            Bot.Cover.StartShotCover(shotArea, outcome == EShotReaction.Cover);
         }
         if (outcome == EShotReaction.Suppress)
         {
