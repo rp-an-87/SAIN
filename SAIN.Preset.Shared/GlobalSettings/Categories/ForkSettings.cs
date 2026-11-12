@@ -438,28 +438,28 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Short: Cover Weight")]
     [Description("Relative weight of taking cover when the shooter is in the short zone. The four weights of a zone are compared, they do not need to add up to 100.")]
     [MinMax(0f, 100f, 1f)]
-    public float ShortCover = 20f;
+    public float ShortCover = 15f;
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
     [Name("Short: Fight Weight")]
     [Description("Relative weight of fighting back (after a reaction delay) in the short zone.")]
     [MinMax(0f, 100f, 1f)]
-    public float ShortFight = 60f;
+    public float ShortFight = 75f;
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
     [Name("Mid: Cover Weight")]
     [Description("Relative weight of taking cover in the mid zone.")]
     [MinMax(0f, 100f, 1f)]
-    public float MidCover = 45f;
+    public float MidCover = 35f;
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
     [Name("Mid: Fight Weight")]
     [Description("Relative weight of fighting back in the mid zone.")]
     [MinMax(0f, 100f, 1f)]
-    public float MidFight = 25f;
+    public float MidFight = 50f;
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
@@ -1130,6 +1130,13 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("A repeat retreat can only start this many seconds after the previous retreat began, so a second hit right at the start does not restart it.")]
     [MinMax(0f, 20f, 10f)]
     public float ShotRepeatMinRetreatTime = 3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Zones & weights")]
+    [Name("Distance Scale")]
+    [Description("Multiplies the distance (as a share of the bot's reach) before the zone weights are read. Below 1 every distance counts as shorter, so bots fight more; above 1 they hide more. Does not change point blank, close range, or the fade of Fight beyond the real reach.")]
+    [MinMax(0.3f, 2f, 100f)]
+    public float ShotDistanceScale = 0.8f;
 
     public override void Init(List<ISAINSettings> list)
     {

@@ -1596,7 +1596,9 @@ public class ShotReactionClass : BotComponentClassBase
         float reachWeight = Mathf.Clamp01(distance / Mathf.Max(fork.ShotReachFullEffectDistance, 1f));
         float ratio = Mathf.Lerp(distance / Mathf.Max(fork.ShotReferenceReach, 1f), distance / reach, reachWeight);
 
-        SampleShares(ratio, fork, out float cover, out float fight);
+        // The zone table is read at the scaled distance; the reach fade below uses the real one.
+        float tableRatio = ratio * fork.ShotDistanceScale;
+        SampleShares(tableRatio, fork, out float cover, out float fight);
 
         // Fight fades out beyond the weapon's reach (the sights are already in the reach, which the ratio is relative to).
         fight *= Mathf.Clamp01(Mathf.InverseLerp(FIGHT_FADE_END, FIGHT_FADE_START, ratio));
@@ -1697,7 +1699,7 @@ public class ShotReactionClass : BotComponentClassBase
             fight *= INJURED_FIGHT_PENALTY;
         }
 
-        NormalizeWithLimits(ref cover, ref fight, fork, ratio);
+        NormalizeWithLimits(ref cover, ref fight, fork, tableRatio);
 
         bool pointBlank = distance <= POINT_BLANK_DISTANCE;
         if (pointBlank && fight < POINT_BLANK_FIGHT_SHARE)
