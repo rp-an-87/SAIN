@@ -55,7 +55,8 @@ internal class SeekCoverAction(BotOwner bot) : BotAction(bot, nameof(SeekCoverAc
             Bot.Aim.LoseAimTarget();
             Bot.Suppression.ResetSuppressing();
         }
-        if (!Bot.Steering.SteerByPriority(enemy, false))
+        // Fork: after being shot by an enemy it cannot see, the bot never looks at the shooter's exact position.
+        if (!Bot.ShotReaction.TrySteer(enemy) && !Bot.Steering.SteerByPriority(enemy, false))
         {
             Bot.Steering.LookToLastKnownEnemyPosition(enemy);
         }

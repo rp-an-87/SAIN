@@ -1,12 +1,12 @@
 ﻿using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using SAIN.Preset.Shared.GlobalSettings.Categories;
+using SAIN.Models.Enums;
 using UnityEngine;
 
 namespace SAIN.Layers.Combat.Solo;
 
 /// <summary>
-/// Fork: after hiding from an unseen shooter, the bot walks cautiously to a different area instead of going back to where it was shot at.
+/// Fork: after hiding from an unseen shooter, the bot runs to a different area instead of going back to where it was shot at.
 /// The destination is chosen by ShotReactionClass.
 /// </summary>
 internal class RelocateAction(BotOwner bot) : BotAction(bot, "Relocate"), IBotAction
@@ -15,16 +15,15 @@ internal class RelocateAction(BotOwner bot) : BotAction(bot, "Relocate"), IBotAc
 
     public override void Update(CustomLayer.ActionData data)
     {
-        ForkSettings fork = SAINPlugin.LoadedPreset.GlobalSettings.Fork;
-        Bot.Mover.SetTargetMoveSpeed(fork.ShotRelocateSpeed);
-        Bot.Mover.SetTargetPose(fork.ShotRelocatePose);
+        Bot.Mover.SetTargetMoveSpeed(1f);
+        Bot.Mover.SetTargetPose(1f);
 
         if (_nextRepathTime > Time.time)
         {
             return;
         }
         _nextRepathTime = Time.time + REPATH_INTERVAL;
-        Bot.Mover.WalkToPoint(Bot.ShotReaction.RelocatePoint, true, 2f);
+        Bot.Mover.RunToPoint(Bot.ShotReaction.RelocatePoint, true, 2f, ESprintUrgency.High);
     }
 
     public override void OnSteeringTicked()

@@ -255,6 +255,12 @@ public class Enemy : BotBase, ISPlayer
         get { return Vision.IsVisible; }
     }
 
+    /// <summary>Fork: how long the enemy has been continuously visible (0 if not visible).</summary>
+    public float VisibleDuration
+    {
+        get { return Vision.IsVisible && Vision.VisibleStartTime > 0f ? UnityEngine.Time.time - Vision.VisibleStartTime : 0f; }
+    }
+
     public bool CanShoot
     {
         get { return Vision.CanShoot; }

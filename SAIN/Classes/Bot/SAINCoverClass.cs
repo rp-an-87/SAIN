@@ -88,19 +88,94 @@ public class SAINCoverClass : BotComponentClassBase
 
     private readonly List<CoverPoint> _coverPoints = [];
 
+    private void LogShotCover(string message)
+    {
+        if (_shotAwayUntil < Time.time || !GlobalSettingsClass.Instance.Fork.ShotReactionLog)
+        {
+            return;
+        }
+        Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.name}: {message}");
+    }
+
+    private string _lastSprintReason;
+    private float _nextNoCoverLogTime;
+
+    private void LogNoCover(string message)
+    {
+        if (_nextNoCoverLogTime > Time.time)
+        {
+            return;
+        }
+        _nextNoCoverLogTime = Time.time + 0.5f;
+        LogShotCover(message);
+    }
+
+    private const float FLEE_DISTANCE = 25f;
+    private const float FLEE_REPATH_INTERVAL = 1f;
+    private static readonly float[] FLEE_ANGLES = [0f, 35f, -35f, 70f, -70f];
+    private float _nextFleeTime;
+    private bool _fleeActive;
+
+    /// <summary>
+    /// Fork: shot at by an enemy it cannot place, but its cover finder has no cover points yet (it needs a first scan after the bot
+    /// learns of an enemy). Instead of the aggressive dogfight move, the bot sprints away from the vague shot area until cover is found.
+    /// </summary>
+    private bool TryFleeFromShot()
+    {
+        if (_shotAwayUntil < Time.time)
+        {
+            return false;
+        }
+        if (_nextFleeTime > Time.time)
+        {
+            return _fleeActive;
+        }
+        _nextFleeTime = Time.time + FLEE_REPATH_INTERVAL;
+        _fleeActive = false;
+
+        Vector3 from = Bot.Position;
+        Vector3 away = from - _shotAwayFrom;
+        away.y = 0f;
+        if (away.sqrMagnitude < 1f)
+        {
+            away = -Bot.LookDirection;
+            away.y = 0f;
+        }
+        away.Normalize();
+        for (int i = 0; i < FLEE_ANGLES.Length; i++)
+        {
+            Vector3 direction = Quaternion.Euler(0f, FLEE_ANGLES[i], 0f) * away;
+            Vector3? point = NavMeshHelpers.GetNearbyNavMeshPoint(from + (direction * FLEE_DISTANCE), 4f);
+            if (point == null)
+            {
+                continue;
+            }
+            if (Bot.Mover.RunToPoint(point.Value, true, 2f, ESprintUrgency.High))
+            {
+                _fleeActive = true;
+                LogShotCover($"no cover points yet: fleeing {(point.Value - from).magnitude:0} m away from the shot area");
+                return true;
+            }
+        }
+        return false;
+    }
+
     private CoverPoint FindCoverPoint()
     {
         if (CoverPoints.Count == 0)
         {
+            LogNoCover("cover search: the bot has no cover points at all");
             return null;
         }
 
         GetGoodCover(CoverPoints, _coverPoints, Bot.Transform.NavData.Position);
         if (_coverPoints.Count == 0)
         {
+            LogNoCover($"cover search: none of {CoverPoints.Count} cover points is usable");
             return null;
         }
         filterForReloadRelocation();
+        filterAwayFromShot();
 
         _coverPoints.Sort((x, y) => x.PathData.PathLength.CompareTo(y.PathData.PathLength));
         for (int i = 0; i < _coverPoints.Count; i++)
@@ -108,14 +183,72 @@ public class SAINCoverClass : BotComponentClassBase
             CoverPoint coverPoint = _coverPoints[i];
             if (Bot.Mover.GoToCoverPoint(coverPoint, _shallSprint, ESprintUrgency.High))
             {
+                LogShotCover($"cover search: picked candidate {i + 1} of {_coverPoints.Count}, path {coverPoint.PathData.PathLength:0} m, sprint {_shallSprint}");
                 return coverPoint;
             }
         }
+        LogNoCover($"cover search: no reachable cover among {_coverPoints.Count} candidates");
         //Logger.LogWarning($"[{Bot.name}] No Cover Point found, even though there are {_coverPoints.Count} cover points available.");
         return null;
     }
 
     private const float RELOAD_RELOCATE_ACTIVE_TIME = 10f;
+    private const float SHOT_COVER_ACTIVE_TIME = 8f;
+    private const float SHOT_COVER_MIN_GAIN = 3f;
+
+    private Vector3 _shotAwayFrom;
+    private float _shotAwayUntil;
+    private float _forceSprintUntil;
+
+    /// <summary>
+    /// Fork: the bot was shot at by an enemy it cannot place. It runs to cover at once (no walking delay) and prefers cover further
+    /// from the vague shot area than it is now. If no such cover exists, the nearest cover is used.
+    /// </summary>
+    public void StartShotCover(Vector3 shotArea, bool awayFromShot = true)
+    {
+        _shotAwayFrom = shotArea;
+        // Without awayFromShot the nearest cover is used and the bot never flees (it only runs to cover).
+        _shotAwayUntil = awayFromShot ? Time.time + SHOT_COVER_ACTIVE_TIME : 0f;
+        _forceSprintUntil = Time.time + SHOT_COVER_ACTIVE_TIME;
+        _nextFleeTime = 0f;
+        _fleeActive = false;
+        if (CoverInUse == null)
+        {
+            CoverPoint_MovingTo = null;
+            _timeLastUpdate = 0f;
+        }
+    }
+
+    private void filterAwayFromShot()
+    {
+        if (_shotAwayUntil < Time.time)
+        {
+            return;
+        }
+        float botDistance = Vector3.Distance(Bot.Position, _shotAwayFrom);
+        _relocateTemp.Clear();
+        foreach (CoverPoint point in _coverPoints)
+        {
+            if (Vector3.Distance(point.Position, _shotAwayFrom) >= botDistance + SHOT_COVER_MIN_GAIN)
+            {
+                _relocateTemp.Add(point);
+            }
+        }
+        bool log = GlobalSettingsClass.Instance.Fork.ShotReactionLog;
+        if (_relocateTemp.Count > 0)
+        {
+            if (log)
+            {
+                Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.name}: cover away from the shot, {_relocateTemp.Count} of {_coverPoints.Count} points qualify");
+            }
+            _coverPoints.Clear();
+            _coverPoints.AddRange(_relocateTemp);
+        }
+        else if (log)
+        {
+            Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.name}: no cover away from the shot, nearest cover of {_coverPoints.Count} used");
+        }
+    }
 
     private CoverPoint _relocateAvoidPoint;
     private Vector3 _relocateEnemyPos;
@@ -250,6 +383,11 @@ public class SAINCoverClass : BotComponentClassBase
             reason = "EnemySniperRun";
             return true;
         }
+        if (Time.time < _forceSprintUntil)
+        {
+            reason = "shotReaction";
+            return true;
+        }
         if (_startRunCoverTimer < Time.time)
         {
             reason = "timeToRun";
@@ -277,6 +415,11 @@ public class SAINCoverClass : BotComponentClassBase
         _timeLastUpdate = Time.time;
 
         _shallSprint = CheckStartRun(enemy, out string reason);
+        if (reason != _lastSprintReason)
+        {
+            _lastSprintReason = reason;
+            LogShotCover($"sprint {_shallSprint}: {reason}");
+        }
 
         if (CoverInUse != null)
         {
@@ -289,6 +432,7 @@ public class SAINCoverClass : BotComponentClassBase
                 SetCoverSeekingState(ECoverSeekingState.HoldInCover);
                 return;
             }
+            LogShotCover("cover in use went bad, dropped");
             CoverInUse = null;
         }
 
@@ -319,6 +463,7 @@ public class SAINCoverClass : BotComponentClassBase
                 SetCoverSeekingState(ECoverSeekingState.MoveTo);
                 return;
             }
+            LogShotCover("the move to the chosen cover failed this update (bot may idle)");
         }
 
         if (CoverPoint_MovingTo == null)
@@ -326,8 +471,11 @@ public class SAINCoverClass : BotComponentClassBase
             CoverPoint_MovingTo = FindCoverPoint();
             if (CoverPoint_MovingTo == null)
             {
-                const bool AGGRESSIVE_NO_COVER = true;
-                Bot.Mover.DogFight.DogFightMove(AGGRESSIVE_NO_COVER, enemy);
+                if (!TryFleeFromShot())
+                {
+                    const bool AGGRESSIVE_NO_COVER = true;
+                    Bot.Mover.DogFight.DogFightMove(AGGRESSIVE_NO_COVER, enemy);
+                }
                 SetCoverSeekingState(ECoverSeekingState.NoCover);
                 _shallSprint = false;
             }
@@ -363,6 +511,7 @@ public class SAINCoverClass : BotComponentClassBase
         {
             return;
         }
+        LogShotCover($"cover state {CoverSeekingState} -> {behavior}");
 
         switch (behavior)
         {

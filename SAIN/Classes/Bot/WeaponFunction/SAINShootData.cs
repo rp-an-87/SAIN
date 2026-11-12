@@ -152,6 +152,8 @@ public class SAINShootData : BotComponentClassBase
             return false;
         }
 
+        bot.Info.WeaponInfo.ApplyOverReachScatter(Enemy);
+
         var weaponManager = bot.BotOwner.WeaponManager;
         if (weaponManager == null)
         {

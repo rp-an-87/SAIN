@@ -294,14 +294,14 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Over-Reach Chance")]
     [Description("Chance, rolled once per interval, that the bot fires at an enemy just past its reach. Falls linearly to 0 at the limit below.")]
     [MinMax(0f, 1f, 100f)]
-    public float OverReachChance = 0.25f;
+    public float OverReachChance = 0.5f;
 
     [DataMember]
     [Category("Range/Over-reach fire")]
     [Name("Over-Reach Limit Factor")]
     [Description("Beyond this multiple of the bot's reach it never fires. Must be above Shoot Reach Factor.")]
     [MinMax(1f, 5f, 100f)]
-    public float OverReachLimitFactor = 2.5f;
+    public float OverReachLimitFactor = 4f;
 
     [DataMember]
     [Category("Range/Over-reach fire")]
@@ -316,6 +316,22 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("A successful roll lets the bot fire for about this many seconds (varies by a third either way).")]
     [MinMax(0.5f, 15f, 10f)]
     public float OverReachWindow = 3f;
+
+    [DataMember]
+    [Category("Range/Over-reach fire")]
+    [Name("Over-Reach Scatter")]
+    [Description(
+        "Shots beyond the bot's reach scatter this many times more, unless the bot has had you in continuous view for the time below. 1 = no extra scatter."
+    )]
+    [MinMax(1f, 10f, 10f)]
+    public float OverReachScatterMulti = 4f;
+
+    [DataMember]
+    [Category("Range/Over-reach fire")]
+    [Name("Over-Reach Accurate After")]
+    [Description("Seconds of continuous view of the enemy after which an over-reach shot is as accurate as normal (the bot has really tracked you).")]
+    [MinMax(0f, 30f, 10f)]
+    public float OverReachAccurateAfter = 5f;
 
     [DataMember]
     [Category("Shot Reaction/General")]
@@ -566,22 +582,8 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Position & timing")]
-    [Name("Fight Delay Min")]
-    [Description("Shortest time, in seconds, before a bot that chose to fight back stops hiding and fights.")]
-    [MinMax(0f, 5f, 10f)]
-    public float ShotFightDelayMin = 0.6f;
-
-    [DataMember]
-    [Category("Shot Reaction/Position & timing")]
-    [Name("Fight Delay Max")]
-    [Description("Longest time, in seconds, before a bot that chose to fight back stops hiding and fights.")]
-    [MinMax(0f, 5f, 10f)]
-    public float ShotFightDelayMax = 1.5f;
-
-    [DataMember]
-    [Category("Shot Reaction/Position & timing")]
     [Name("Fight Duration")]
-    [Description("After the fight delay, normal SAIN combat behavior is allowed for this many seconds, then the shooter is forgotten if the bot has not seen it.")]
+    [Description("A bot that chose to fight back uses normal SAIN combat behavior at once for this many seconds, then the shooter is forgotten if the bot has not seen it.")]
     [MinMax(2f, 60f, 1f)]
     public float ShotFightDuration = 10f;
 
@@ -659,11 +661,34 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public bool ShotRelocateEnabled = true;
 
     [DataMember]
-    [Category("Shot Reaction/Relocate after hiding")]
-    [Name("Shot Relocate Chance")]
-    [Description("Chance that a bot relocates after hiding. 1 = always.")]
+    [Category("Shot Reaction/After hiding")]
+    [Name("Follow-up: Fight On")]
+    [Description(
+        "Weight: after hiding, the bot stays in cover and fights back (suppressive fire at the vague area, normal combat if it sees the shooter). Personality and weapon reach scale the weights."
+    )]
     [MinMax(0f, 1f, 100f)]
-    public float ShotRelocateChance = 0.8f;
+    public float ShotFollowFightOn = 0.4f;
+
+    [DataMember]
+    [Category("Shot Reaction/After hiding")]
+    [Name("Follow-up: Investigate")]
+    [Description("Weight: after hiding, the bot goes looking for the shooter (normal search toward the vague area, stops and fights when it sees the shooter).")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotFollowInvestigate = 0.3f;
+
+    [DataMember]
+    [Category("Shot Reaction/After hiding")]
+    [Name("Follow-up: Retreat")]
+    [Description("Weight: after hiding, the bot relocates away from the shot area (see the Relocate settings). Ignored if Relocate is off.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotFollowRetreat = 0.3f;
+
+    [DataMember]
+    [Category("Shot Reaction/After hiding")]
+    [Name("Fight-On Duration")]
+    [Description("Seconds the bot keeps fighting back from cover after hiding, before it may forget the shooter.")]
+    [MinMax(2f, 60f, 10f)]
+    public float ShotFightOnDuration = 15f;
 
     [DataMember]
     [Category("Shot Reaction/Relocate after hiding")]
@@ -678,20 +703,6 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("Longest distance in meters of the new area from where the bot hid.")]
     [MinMax(10f, 250f, 1f)]
     public float ShotRelocateMaxDistance = 80f;
-
-    [DataMember]
-    [Category("Shot Reaction/Relocate after hiding")]
-    [Name("Shot Relocate Move Speed")]
-    [Description("Movement speed while relocating (0 = slowest walk, 1 = full walk speed). Lower looks more cautious.")]
-    [MinMax(0.1f, 1f, 100f)]
-    public float ShotRelocateSpeed = 0.7f;
-
-    [DataMember]
-    [Category("Shot Reaction/Relocate after hiding")]
-    [Name("Shot Relocate Pose")]
-    [Description("Pose while relocating (0 = crouched, 1 = standing).")]
-    [MinMax(0f, 1f, 100f)]
-    public float ShotRelocatePose = 0.8f;
 
     [DataMember]
     [Category("Shot Reaction/Relocate after hiding")]

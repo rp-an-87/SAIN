@@ -5,6 +5,7 @@ using SAIN.Helpers;
 using SAIN.Preset;
 using SAIN.Preset.Shared.Enums;
 using SAIN.Preset.Shared.GlobalSettings.Categories;
+using SAIN.SAINComponent.Classes.EnemyClasses;
 using SAIN.SAINComponent.Classes.WeaponFunction;
 using UnityEngine;
 using static EFT.InventoryLogic.Weapon;
@@ -236,19 +237,48 @@ public class BotWeaponInfoClass : BotBase
 
     private float _overReachWindowEnd;
     private float _nextOverReachRollTime;
+    private readonly TemporaryStatModifiers _overReachScatter = new(1f, 1f, 1f, 1f, 1f);
+
+    /// <summary>
+    /// Fork: a shot beyond the bot's reach (an over-reach window) scatters more, unless the bot has really tracked the enemy
+    /// (continuously in view for Over-Reach Accurate After seconds). Applied briefly and re-applied while the bot keeps aiming.
+    /// </summary>
+    public void ApplyOverReachScatter(Enemy enemy)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (enemy == null || fork.OverReachScatterMulti <= 1f || fork.ShootReachFactor <= 0f || !Bot.Info.Profile.RangeEnabled)
+        {
+            return;
+        }
+        if (enemy.RealDistance <= EffectiveWeaponDistance * fork.ShootReachFactor)
+        {
+            return;
+        }
+        if (enemy.IsVisible && enemy.VisibleDuration >= fork.OverReachAccurateAfter)
+        {
+            return;
+        }
+        if (_overReachScatter.Modifiers.IsApplyed)
+        {
+            return;
+        }
+        _overReachScatter.Modifiers.ScatteringCoef = fork.OverReachScatterMulti;
+        _overReachScatter.Modifiers.PriorityScatteringCoef = fork.OverReachScatterMulti;
+        BotOwner.Settings.Current.Apply(_overReachScatter.Modifiers, 0.5f);
+    }
 
     /// <summary>
     /// Fork: false if the enemy is too far away for this bot to fire suppressing bursts at its last known position.
     /// Always true when the fork's range behavior is off for this bot.
     /// </summary>
-    public bool IsWithinSuppressReach(float enemyDistance)
+    public bool IsWithinSuppressReach(float enemyDistance, float stretch = 1f)
     {
         ForkSettings fork = GlobalSettings.Fork;
         if (!fork.SuppressLimitEnabled || !Bot.Info.Profile.RangeEnabled)
         {
             return true;
         }
-        return enemyDistance <= EffectiveWeaponDistance * fork.SuppressReachFraction;
+        return enemyDistance <= EffectiveWeaponDistance * fork.SuppressReachFraction * stretch;
     }
 
     public bool IsFireModeSet(EFireMode mode)
