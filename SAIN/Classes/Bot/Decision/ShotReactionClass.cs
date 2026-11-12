@@ -84,12 +84,12 @@ public class ShotReactionClass : BotComponentClassBase
 
     /// <summary>Self preservation: a hit (or a close bullet) while the bot shelters in cover makes it look for another cover. Chances, scaled by personality; at most one move per interval.</summary>
     private const float SELF_PRESERVE_HIT_CHANCE = 0.9f;
-    private const float SELF_PRESERVE_BULLET_CHANCE = 0.5f;
+    private const float SELF_PRESERVE_BULLET_CHANCE = 0.2f;
     private const float SELF_PRESERVE_INTERVAL = 3f;
 
     /// <summary>A hit (or a close bullet) while investigating breaks the advance: the bot runs for cover and reassesses (a new Cover reaction, which ends in a new follow-up pick).</summary>
     private const float INVESTIGATE_BREAK_HIT_CHANCE = 1f;
-    private const float INVESTIGATE_BREAK_BULLET_CHANCE = 0.5f;
+    private const float INVESTIGATE_BREAK_BULLET_CHANCE = 0.2f;
     private const float HOP_HOLD_MAX = 7f;
     private const float AMBUSH_TIME_MAX = 40f;
 
