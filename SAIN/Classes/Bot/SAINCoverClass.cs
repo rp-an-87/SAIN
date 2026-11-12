@@ -303,6 +303,7 @@ public class SAINCoverClass : BotComponentClassBase
         _forceSprintUntil = 0f;
         _relocateUntil = 0f;
         _relocateAvoidPoint = null;
+        _relocateSolidOnly = false;
         _fleeActive = false;
         _advanceActive = false;
         _advanceFrom = null;
@@ -684,6 +685,13 @@ public class SAINCoverClass : BotComponentClassBase
             CoverPoint_MovingTo = FindCoverPoint();
             if (CoverPoint_MovingTo == null)
             {
+                // Fork: after a short grace (the finder may still be scanning) the shot reaction decides fight or flight instead of the stopgaps below.
+                if (Bot.ShotReaction.HandleNoCover(enemy))
+                {
+                    SetCoverSeekingState(ECoverSeekingState.NoCover);
+                    _shallSprint = false;
+                    return;
+                }
                 if (!TryFleeFromShot())
                 {
                     LogNoCover("NO COVER EDGE CASE: no cover points and no flee, falling back to the dogfight move (walks toward the enemy)");

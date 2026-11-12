@@ -122,6 +122,9 @@ public class ShotReactionClass : BotComponentClassBase
     private const float HOP_HOLD_MAX = 7f;
     private const float AMBUSH_TIME_MAX = 40f;
 
+    /// <summary>No usable cover: the finder may still be scanning, so the decision waits this long (the bot runs its short stopgap meanwhile).</summary>
+    private const float NO_COVER_GRACE = 0.8f;
+
     private enum EFollowUp
     {
         Retreat,
@@ -708,6 +711,7 @@ public class ShotReactionClass : BotComponentClassBase
         _enemy = enemy;
         Outcome = EShotReaction.Hunt;
         _followDone = true;
+        _noCoverDone = true;
         _hideUntil = now + hold;
         _investigateStart = _hideUntil;
         _ambushUntil = 0f;
@@ -733,7 +737,22 @@ public class ShotReactionClass : BotComponentClassBase
     /// <summary>
     /// Picks a point on the far side from the vague shot area and starts walking there. False = no usable point, the bot goes back to its normal behavior.
     /// </summary>
-    private bool TryStartRelocating()
+    private bool TryStartRelocating(float? distanceOverride = null)
+    {
+        // A point out of the shooter's line of sight is preferred (the bot is gone, not just further away); any point is the fallback.
+        return TryRelocatePass(distanceOverride, true) || TryRelocatePass(distanceOverride, false);
+    }
+
+    private bool BreaksLineOfSight(Vector3 shotArea, Vector3 point)
+    {
+        if (_solidMask < 0)
+        {
+            _solidMask = (1 << LayerMask.NameToLayer("Terrain")) | (1 << LayerMask.NameToLayer("HighPolyCollider"));
+        }
+        return Physics.Linecast(shotArea + (Vector3.up * 1.5f), point + (Vector3.up * 1.4f), _solidMask);
+    }
+
+    private bool TryRelocatePass(float? distanceOverride, bool requireBrokenLos)
     {
         ForkSettings fork = GlobalSettings.Fork;
         Vector3 from = Bot.Position;
@@ -750,7 +769,7 @@ public class ShotReactionClass : BotComponentClassBase
 
         float min = Mathf.Min(fork.ShotRelocateMinDistance, fork.ShotRelocateMaxDistance);
         float max = Mathf.Max(fork.ShotRelocateMinDistance, fork.ShotRelocateMaxDistance);
-        float distance = Random.Range(min, max);
+        float distance = distanceOverride ?? Random.Range(min, max);
         float currentToShot = (from - shotArea).magnitude;
 
         for (int step = 0; step < 3; step++)
@@ -766,6 +785,10 @@ public class ShotReactionClass : BotComponentClassBase
                 }
                 // Must actually end up further from the shot area than the bot is now.
                 if ((sampled.Value - shotArea).magnitude < currentToShot + (stepDistance * 0.5f))
+                {
+                    continue;
+                }
+                if (requireBrokenLos && !BreaksLineOfSight(shotArea, sampled.Value))
                 {
                     continue;
                 }
@@ -789,11 +812,124 @@ public class ShotReactionClass : BotComponentClassBase
                 return true;
             }
         }
-        if (fork.ShotReactionLog)
+        if (!requireBrokenLos && fork.ShotReactionLog)
         {
             Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.name}: no relocation point found, back to normal");
         }
         return false;
+    }
+
+    /// <summary>
+    /// Called by the cover logic when the bot wants cover and has none. After a short grace it decides, once per roll: fight (normal combat) or flee
+    /// (retreat out of the shooter's sight, farther the closer the shooter is). A bot that cannot find a place to flee to is cornered and fights.
+    /// True = the reaction took over (the bot's state changed); false = keep the stopgap.
+    /// </summary>
+    public bool HandleNoCover(Enemy enemy)
+    {
+        if (!IsManaging(enemy) || Relocating || _followDone || _noCoverDone || Outcome == EShotReaction.Fight)
+        {
+            return false;
+        }
+        float now = Time.time;
+        if (_noCoverSince < 0f || now - _lastNoCoverCall > 0.5f)
+        {
+            _noCoverSince = now;
+        }
+        _lastNoCoverCall = now;
+        if (now - _noCoverSince < NO_COVER_GRACE)
+        {
+            return false;
+        }
+        _noCoverDone = true;
+
+        ForkSettings fork = GlobalSettings.Fork;
+        float distance = enemy.RealDistance;
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        float ratio = distance / reach;
+        float score = NoCoverFightScore(distance, ratio, out string why);
+        float fightChance = 1f / (1f + Mathf.Exp(-score));
+        bool fight = Random.value < fightChance;
+        if (!fight)
+        {
+            // Close shooter: get far. Distant shooter: just get out of sight (the short end of the range).
+            float min = Mathf.Min(fork.ShotRelocateMinDistance, fork.ShotRelocateMaxDistance);
+            float max = Mathf.Max(fork.ShotRelocateMinDistance, fork.ShotRelocateMaxDistance);
+            float fleeDistance = Mathf.Lerp(max, min, Mathf.InverseLerp(0.5f, 1.5f, ratio));
+            if (TryStartRelocating(fleeDistance))
+            {
+                LogEvent($"no cover: flight (fight chance {fightChance:0.00}: {why}), fleeing {fleeDistance:0} m");
+                return true;
+            }
+            LogEvent("no cover: nowhere to flee to, cornered");
+        }
+        LogEvent($"no cover: fight (fight chance {fightChance:0.00}: {why})");
+        Outcome = EShotReaction.Fight;
+        _followDone = true;
+        _hideUntil = now;
+        _expireTime = now + fork.ShotFightDuration;
+        SprintWhileInvestigating = false;
+        Bot.Cover.ClearShotState();
+        return true;
+    }
+
+    /// <summary>Positive = fight, negative = flee. Soft: the result feeds a logistic chance, not a threshold.</summary>
+    private float NoCoverFightScore(float distance, float ratio, out string why)
+    {
+        float score = -0.5f; // the roll already said "not fight": flight is the default
+        string parts = "base -0.5";
+        if (IsCloseRange(distance))
+        {
+            score += 3f;
+            parts += ", close +3";
+        }
+        if (ratio <= 0.5f)
+        {
+            score += 1.5f;
+            parts += ", inside half reach +1.5";
+        }
+        else if (ratio <= 1f)
+        {
+            score += 0.3f;
+            parts += ", inside reach +0.3";
+        }
+        else if (ratio <= FIGHT_REACH_LIMIT)
+        {
+            score -= 1f;
+            parts += ", just out of reach -1";
+        }
+        else
+        {
+            score -= 2.5f;
+            parts += ", far out of reach -2.5";
+        }
+        switch (Bot.Info.Personality)
+        {
+            case EPersonality.Wreckless:
+            case EPersonality.GigaChad:
+            case EPersonality.Chad:
+                score += 1f;
+                parts += ", aggressive +1";
+                break;
+            case EPersonality.Rat:
+            case EPersonality.Timmy:
+            case EPersonality.Coward:
+                score -= 1f;
+                parts += ", timid -1";
+                break;
+        }
+        ETagStatus health = Bot.Memory.Health.HealthStatus;
+        if (health == ETagStatus.BadlyInjured || health == ETagStatus.Dying)
+        {
+            score -= 0.5f;
+            parts += ", hurt -0.5";
+        }
+        if (!Bot.Player.MovementContext.CanSprint)
+        {
+            score += 2f;
+            parts += ", cannot sprint +2";
+        }
+        why = parts;
+        return score;
     }
 
     private bool ContinueRelocating(Enemy enemy)
@@ -1189,6 +1325,8 @@ public class ShotReactionClass : BotComponentClassBase
         _rolled = outcome;
         Relocating = false;
         _followDone = false;
+        _noCoverDone = false;
+        _noCoverSince = -1f;
         _ambushUntil = 0f;
         SprintWhileInvestigating = false;
         _nextRollTime = now + fork.ShotRerollInterval;
@@ -1235,6 +1373,10 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     private Enemy _enemy;
+    private float _noCoverSince = -1f;
+    private float _lastNoCoverCall;
+    private bool _noCoverDone;
+    private int _solidMask = -1;
     private EShotReaction _rolled;
     private float _nextBreakAllowed;
     private float _noHopUntil;
