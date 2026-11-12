@@ -438,49 +438,35 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Short: Cover Weight")]
     [Description("Relative weight of taking cover when the shooter is in the short zone. The four weights of a zone are compared, they do not need to add up to 100.")]
     [MinMax(0f, 100f, 1f)]
-    public float ShortCover = 45f;
+    public float ShortCover = 35f;
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
     [Name("Short: Fight Weight")]
     [Description("Relative weight of fighting back (after a reaction delay) in the short zone.")]
     [MinMax(0f, 100f, 1f)]
-    public float ShortFight = 35f;
-
-    [DataMember]
-    [Category("Shot Reaction/Zones & weights")]
-    [Name("Short: Hunt Weight")]
-    [Description("Relative weight of taking cover, assessing, then hunting the shooter in the short zone.")]
-    [MinMax(0f, 100f, 1f)]
-    public float ShortHunt = 15f;
+    public float ShortFight = 60f;
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
     [Name("Mid: Cover Weight")]
     [Description("Relative weight of taking cover in the mid zone.")]
     [MinMax(0f, 100f, 1f)]
-    public float MidCover = 60f;
+    public float MidCover = 65f;
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
     [Name("Mid: Fight Weight")]
     [Description("Relative weight of fighting back in the mid zone.")]
     [MinMax(0f, 100f, 1f)]
-    public float MidFight = 8f;
-
-    [DataMember]
-    [Category("Shot Reaction/Zones & weights")]
-    [Name("Mid: Hunt Weight")]
-    [Description("Relative weight of cover, assess, hunt in the mid zone.")]
-    [MinMax(0f, 100f, 1f)]
-    public float MidHunt = 20f;
+    public float MidFight = 25f;
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
     [Name("Long: Cover Weight")]
     [Description("Relative weight of taking cover in the long zone.")]
     [MinMax(0f, 100f, 1f)]
-    public float LongCover = 85f;
+    public float LongCover = 95f;
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
@@ -488,13 +474,6 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("Relative weight of fighting back in the long zone. Only bots whose weapon reaches the shooter can pick it.")]
     [MinMax(0f, 100f, 1f)]
     public float LongFight = 2f;
-
-    [DataMember]
-    [Category("Shot Reaction/Zones & weights")]
-    [Name("Long: Hunt Weight")]
-    [Description("Relative weight of cover, assess, hunt in the long zone.")]
-    [MinMax(0f, 100f, 1f)]
-    public float LongHunt = 10f;
 
     [DataMember]
     [Category("Shot Reaction/Pulls")]
@@ -589,20 +568,6 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Position & timing")]
-    [Name("Assess Time Min")]
-    [Description("Shortest time, in seconds, a bot that chose to hunt stays in cover assessing before it moves out.")]
-    [MinMax(0.5f, 30f, 10f)]
-    public float ShotAssessTimeMin = 3f;
-
-    [DataMember]
-    [Category("Shot Reaction/Position & timing")]
-    [Name("Assess Time Max")]
-    [Description("Longest time, in seconds, a bot that chose to hunt stays in cover assessing before it moves out.")]
-    [MinMax(0.5f, 60f, 10f)]
-    public float ShotAssessTimeMax = 8f;
-
-    [DataMember]
-    [Category("Shot Reaction/Position & timing")]
     [Name("Hunt Time Max")]
     [Description("A bot that chose to hunt gives up after this many seconds from the shot if it has not seen the shooter.")]
     [MinMax(5f, 180f, 1f)]
@@ -646,21 +611,21 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
         "Weight: after hiding, the bot stays in cover and fights back (suppressive fire at the vague area, normal combat if it sees the shooter). Personality and weapon reach scale the weights."
     )]
     [MinMax(0f, 1f, 100f)]
-    public float ShotFollowFightOn = 0.4f;
+    public float ShotFollowFightOn = 0.35f;
 
     [DataMember]
     [Category("Shot Reaction/After hiding")]
     [Name("Follow-up: Investigate")]
     [Description("Weight: after hiding, the bot goes looking for the shooter (normal search toward the vague area, stops and fights when it sees the shooter).")]
     [MinMax(0f, 1f, 100f)]
-    public float ShotFollowInvestigate = 0.3f;
+    public float ShotFollowInvestigate = 0.4f;
 
     [DataMember]
     [Category("Shot Reaction/After hiding")]
     [Name("Follow-up: Retreat")]
     [Description("Weight: after hiding, the bot relocates away from the shot area (see the Relocate settings). Ignored if Relocate is off.")]
     [MinMax(0f, 1f, 100f)]
-    public float ShotFollowRetreat = 0.3f;
+    public float ShotFollowRetreat = 0.25f;
 
     [DataMember]
     [Category("Shot Reaction/After hiding")]
