@@ -178,6 +178,26 @@ public class SAINCoverClass : BotComponentClassBase
         filterAwayFromShot();
         filterTowardArea();
 
+        // Fork: right after a shot, with only bushes to choose from, the bot does not hide in one: it counts as "no cover" and the shot reaction
+        // decides fight or flight (a full retreat run, or a fight when the shooter is close).
+        if (_shotLogUntil >= Time.time && Bot.ShotReaction.NoCoverDecisionPending)
+        {
+            bool anySolid = false;
+            for (int i = 0; i < _coverPoints.Count; i++)
+            {
+                if (!IsFoliage(_coverPoints[i]))
+                {
+                    anySolid = true;
+                    break;
+                }
+            }
+            if (!anySolid)
+            {
+                LogNoCover($"cover search: only foliage among {_coverPoints.Count} candidates, no solid cover (fight or flight instead)");
+                return null;
+            }
+        }
+
         // Foliage (bushes) hides a bot but stops nothing and is a poor place to stay: it only wins when it is FOLIAGE_PATH_PENALTY closer than solid cover.
         _coverPoints.Sort((x, y) => CoverCost(x).CompareTo(CoverCost(y)));
         for (int i = 0; i < _coverPoints.Count; i++)

@@ -156,6 +156,15 @@ public class ShotReactionClass : BotComponentClassBase
         get { return GlobalSettings.Fork.ShotReactionEnabled && Bot.Info.Profile.ShotReactionEnabled; }
     }
 
+    /// <summary>
+    /// True while a shot reaction is waiting for its first cover (no follow-up pick yet, no fight-or-flight decision yet, not retreating):
+    /// the cover search then treats "only foliage" as "no cover".
+    /// </summary>
+    public bool NoCoverDecisionPending
+    {
+        get { return Outcome != EShotReaction.None && Outcome != EShotReaction.Fight && !Relocating && !_followDone && !_noCoverDone; }
+    }
+
     public bool IsManaging(Enemy enemy)
     {
         return Outcome != EShotReaction.None && enemy != null && enemy == _enemy;
