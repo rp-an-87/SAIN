@@ -1050,7 +1050,12 @@ public class ShotReactionClass : BotComponentClassBase
             }
             else if (Outcome != EShotReaction.None && now >= _expireTime + EXPIRY_GRACE)
             {
-                End("expired");
+                // The decision hook never got to make the follow-up pick (a self action, avoid-threat layer etc. was ahead of it): make it now,
+                // so the bot does not just stand or drift once its hide is over.
+                if (!TryFollowUpOnExpiry(now))
+                {
+                    End("expired");
+                }
             }
         }
 
@@ -1065,6 +1070,38 @@ public class ShotReactionClass : BotComponentClassBase
             $"trace: layer [{agent?.UsingLayer}] node [{agent?.LastNode}] reason [{agent?.LastReason}], SAIN layer {Bot.ActiveLayer}, enemy {(Bot.GoalEnemy != null)}, "
                 + $"moving {Bot.Mover.Moving}, {(Bot.Position - shotArea).magnitude:0} m from the shot area, {(Bot.Position - RelocatePoint).magnitude:0} m from the relocation point"
         );
+    }
+
+    /// <summary>
+    /// A hide (Cover or Suppress) expired without its follow-up pick and the shooter is still unseen: pick now (fight on / investigate / retreat).
+    /// Once per roll. False = nothing to do, the state ends.
+    /// </summary>
+    private bool TryFollowUpOnExpiry(float now)
+    {
+        if (_followDone || _enemy == null || (Outcome != EShotReaction.Cover && Outcome != EShotReaction.Suppress))
+        {
+            return false;
+        }
+        if (SeesShooter(_enemy) && _enemy.CanShoot)
+        {
+            return false;
+        }
+        _followDone = true;
+        LogEvent("hide expired before the follow-up pick ran, picking now");
+        EFollowUp follow = ChooseFollowUp(_enemy);
+        if (follow == EFollowUp.Retreat && TryStartRelocating())
+        {
+            return true;
+        }
+        if (follow == EFollowUp.Investigate)
+        {
+            StartInvestigate(now);
+        }
+        else
+        {
+            StartFightOn(now);
+        }
+        return true;
     }
 
     private void End(string reason)
