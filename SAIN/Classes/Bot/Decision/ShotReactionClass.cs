@@ -108,6 +108,14 @@ public class ShotReactionClass : BotComponentClassBase
     private const float SELF_PRESERVE_BULLET_CHANCE = 0.2f;
     private const float SELF_PRESERVE_INTERVAL = 3f;
 
+    /// <summary>
+    /// A shooter this close (a quarter of the bot's reach, but at least 10 m and at most 25 m) is fought, not fled from:
+    /// no self-preservation hop to another cover, and a hiding bot may fire back at the vague area.
+    /// </summary>
+    private const float CLOSE_RANGE_MIN = 10f;
+    private const float CLOSE_RANGE_MAX = 25f;
+    private const float CLOSE_RANGE_REACH_FRACTION = 0.25f;
+
     /// <summary>A hit (or a close bullet) while investigating breaks the advance: the bot runs for cover and reassesses (a new Cover reaction, which ends in a new follow-up pick).</summary>
     private const float INVESTIGATE_BREAK_HIT_CHANCE = 1f;
     private const float INVESTIGATE_BREAK_BULLET_CHANCE = 0.2f;
@@ -314,6 +322,7 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         float now = Time.time;
+        _lastShotDistance = distance;
         // A state is "in effect" until it expires (hide, fight, fight on, investigate) or while the bot retreats. A shot then never starts a new roll.
         bool inEffect = (Outcome != EShotReaction.None && now < _expireTime) || (Relocating && enemy == _enemy);
         if (enemy == _enemy && (inEffect || now < _nextRollTime))
@@ -338,7 +347,7 @@ public class ShotReactionClass : BotComponentClassBase
             {
                 return;
             }
-            TrySelfPreservation(hit, now);
+            TrySelfPreservation(hit, now, distance);
             return;
         }
         Roll(enemy, distance, hit, now);
@@ -538,11 +547,28 @@ public class ShotReactionClass : BotComponentClassBase
         return true;
     }
 
-    private void TrySelfPreservation(bool hit, float now)
+    private bool IsCloseRange(float distance)
+    {
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        float limit = Mathf.Clamp(reach * CLOSE_RANGE_REACH_FRACTION, CLOSE_RANGE_MIN, CLOSE_RANGE_MAX);
+        return distance <= limit;
+    }
+
+    private void TrySelfPreservation(bool hit, float now, float distance)
     {
         // A fight is never interrupted: only the sheltering states move the bot out of cover that is being shot at.
         if (Outcome == EShotReaction.Fight || Relocating || _vaguePositionTime <= 0f || Bot.Cover.CoverInUse == null || now < _nextSelfPreserve)
         {
+            return;
+        }
+        if (IsCloseRange(distance))
+        {
+            // Point blank: hopping from cover to cover would mean never shooting back. The bot holds and fires (see AllowsSuppress).
+            if (now >= _nextCloseLog)
+            {
+                _nextCloseLog = now + 3f;
+                LogEvent($"self preservation skipped: shooter is close ({distance:0} m), holding cover and firing back");
+            }
             return;
         }
         float chance = hit ? SELF_PRESERVE_HIT_CHANCE : SELF_PRESERVE_BULLET_CHANCE;
@@ -803,7 +829,8 @@ public class ShotReactionClass : BotComponentClassBase
         {
             return true;
         }
-        return Outcome != EShotReaction.Cover;
+        // A Cover bot normally holds fire, but one that is being shot at from close range fires back from its cover.
+        return Outcome != EShotReaction.Cover || IsCloseRange(_lastShotDistance);
     }
 
     /// <summary>
@@ -1028,7 +1055,7 @@ public class ShotReactionClass : BotComponentClassBase
         if (outcome != EShotReaction.Fight)
         {
             // A bot that already sits in cover has nowhere to run to: shot at there, it moves to another cover.
-            TrySelfPreservation(hit, now);
+            TrySelfPreservation(hit, now, distance);
         }
 
         if (fork.ShotReactionLog)
@@ -1220,6 +1247,8 @@ public class ShotReactionClass : BotComponentClassBase
     private float _investigateStart;
     private float _hopHold = 5f;
     private float _nextSelfPreserve;
+    private float _nextCloseLog;
+    private float _lastShotDistance = 9999f;
     private float _ambushUntil;
     private float _traceUntil;
     private float _nextTrace;

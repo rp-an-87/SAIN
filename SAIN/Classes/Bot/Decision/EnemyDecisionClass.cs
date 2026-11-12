@@ -56,6 +56,14 @@ public class EnemyDecisionClass : BotBase
         }
 #endif
 
+        // Fork: shot at by an enemy it cannot see, the bot takes cover first (see ShotReactionClass).
+        // Runs before the reload check: a reloading bot must still end its hide and pick its follow-up (otherwise the state just expires).
+        if (Bot.ShotReaction.TryGetDecision(enemy, out ECombatDecision shotReaction))
+        {
+            result = shotReaction;
+            return true;
+        }
+
         BotWeaponManager weaponManager = BotOwner.WeaponManager;
         if (weaponManager == null || !weaponManager.HaveBullets || weaponManager.Reload.Reloading)
         {
@@ -70,13 +78,6 @@ public class EnemyDecisionClass : BotBase
             DecisionReasons.AppendLine($"1. I've Got Bullets.");
         }
 #endif
-
-        // Fork: shot at by an enemy it cannot see, the bot takes cover first (see ShotReactionClass).
-        if (Bot.ShotReaction.TryGetDecision(enemy, out ECombatDecision shotReaction))
-        {
-            result = shotReaction;
-            return true;
-        }
 
         bool canTakeAggressiveAction = CanBeAggressive(ref reason);
 #if DEBUG
