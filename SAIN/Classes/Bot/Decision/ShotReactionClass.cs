@@ -335,6 +335,9 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         float now = Time.time;
+        _safetyBeforeShot = Safety(now, true);
+        _lastThreatTime = now;
+        _safetyCacheTime = -999f;
         _lastShotDistance = distance;
         // A state is "in effect" until it expires (hide, fight, fight on, investigate) or while the bot retreats. A shot then never starts a new roll.
         bool inEffect = (Outcome != EShotReaction.None && now < _expireTime) || (Relocating && enemy == _enemy);
@@ -356,6 +359,10 @@ public class ShotReactionClass : BotComponentClassBase
                 }
             }
             LogEvent($"{(hit ? "hit" : "bullet")} at {distance:0} m while {state} is in effect, no new roll");
+            if (TryRepeatRelocation(hit, distance, now))
+            {
+                return;
+            }
             if (TryBreakInvestigate(enemy, distance, hit, now))
             {
                 return;
@@ -416,6 +423,10 @@ public class ShotReactionClass : BotComponentClassBase
             // Over, or the bot actually sees the shooter now: normal combat.
             End(seesShooter ? "the bot sees the shooter" : "time is up");
             return false;
+        }
+        if (_postRetreat)
+        {
+            UpdatePostRetreatHold(now);
         }
         if (now < _hideUntil)
         {
@@ -722,6 +733,26 @@ public class ShotReactionClass : BotComponentClassBase
         Outcome = EShotReaction.Hunt;
         _followDone = true;
         _noCoverDone = true;
+        // Hold until it feels safe (random threshold, timid ones want more, aggressive ones less); the old hold time is the upper limit.
+        float threshold = Random.Range(0.6f, 0.9f);
+        switch (Bot.Info.Personality)
+        {
+            case EPersonality.Wreckless:
+            case EPersonality.GigaChad:
+            case EPersonality.Chad:
+                threshold -= 0.1f;
+                break;
+            case EPersonality.Rat:
+            case EPersonality.Timmy:
+            case EPersonality.Coward:
+                threshold += 0.05f;
+                break;
+        }
+        _safetyThreshold = Mathf.Clamp(threshold, 0.5f, 0.95f);
+        _postRetreat = true;
+        _holdMinUntil = now + POST_RETREAT_MIN_HOLD;
+        _nextMobileHop = now + Random.Range(5f, 9f);
+        _safetyCacheTime = -999f;
         _hideUntil = now + hold;
         _investigateStart = _hideUntil;
         _ambushUntil = 0f;
@@ -729,7 +760,7 @@ public class ShotReactionClass : BotComponentClassBase
         _inCoverSince = -1f;
         _expireTime = _hideUntil + fork.ShotHuntTimeMax;
         Bot.Cover.StartShotCover(_vaguePosition, false);
-        LogEvent($"retreat over: holding cover for {hold:0} s, then investigating cover to cover");
+        LogEvent($"retreat over: holding cover until it feels safe (safety >= {_safetyThreshold:0.00}, at most {hold:0} s), then investigating cover to cover");
     }
 
     /// <summary>Go looking for the shooter: the normal search toward the vague area, until the shooter is seen or the time runs out.</summary>
@@ -756,6 +787,119 @@ public class ShotReactionClass : BotComponentClassBase
     private bool BreaksLineOfSight(Vector3 shotArea, Vector3 point)
     {
         return SAINCoverClass.BlocksSight(shotArea, point);
+    }
+
+    // ---- "how sure am I that nobody is after me" ----
+
+    /// <summary>Safety (0..1): quiet time, distance from the shot area and being out of its sight. Shots and sightings reset the quiet time.</summary>
+    private const float SAFETY_QUIET_FULL = 40f;
+    private const float SAFETY_DIST_START = 20f;
+    private const float SAFETY_DIST_FULL = 100f;
+    private const float POST_RETREAT_MIN_HOLD = 10f;
+    private const float MOBILE_SAFETY = 0.5f;
+    private const float REPEAT_RELOCATE_INTERVAL = 8f;
+    private const int REPEAT_RELOCATE_MAX = 2;
+
+    private float _lastThreatTime = -999f;
+    private float _safetyCache;
+    private float _safetyCacheTime = -999f;
+    private float _safetyBeforeShot;
+    private bool _postRetreat;
+    private float _holdMinUntil;
+    private float _safetyThreshold;
+    private float _nextMobileHop;
+    private float _nextRepeatRelocate;
+    private int _repeatRelocations;
+
+    private float Safety(float now, bool fresh = false)
+    {
+        if (!fresh && now - _safetyCacheTime < 1f)
+        {
+            return _safetyCache;
+        }
+        Vector3 area = now - _vaguePositionTime < 600f ? _vaguePosition : Bot.Position;
+        float quiet = Mathf.Clamp01((now - Mathf.Max(_lastThreatTime, _lastSeenTime)) / SAFETY_QUIET_FULL);
+        float far = Mathf.Clamp01(((Bot.Position - area).magnitude - SAFETY_DIST_START) / (SAFETY_DIST_FULL - SAFETY_DIST_START));
+        float sight = SAINCoverClass.BlocksSight(area, Bot.Position) ? 1f : 0f;
+        _safetyCache = (0.45f * quiet) + (0.35f * far) + (0.2f * sight);
+        _safetyCacheTime = now;
+        return _safetyCache;
+    }
+
+    /// <summary>
+    /// After a retreat the bot holds until it feels safe (a random threshold, personality shifted), at least a short while and at most the old hold time.
+    /// While it does not feel safe it does not sit still: it moves to another cover every few seconds.
+    /// </summary>
+    private void UpdatePostRetreatHold(float now)
+    {
+        if (now >= _hideUntil)
+        {
+            // The longest hold is over: from here it is the normal investigation.
+            _postRetreat = false;
+            return;
+        }
+        float safety = Safety(now);
+        if (now >= _holdMinUntil && safety >= _safetyThreshold)
+        {
+            _postRetreat = false;
+            _hideUntil = now;
+            _investigateStart = now;
+            LogEvent($"safe enough (safety {safety:0.00} >= {_safetyThreshold:0.00}): ending the hold, investigating cover to cover");
+            return;
+        }
+        if (safety < MOBILE_SAFETY && now >= _nextMobileHop && Bot.Cover.CoverInUse != null)
+        {
+            _nextMobileHop = now + Random.Range(6f, 12f);
+            if (Bot.Cover.RelocateFromFire(_vaguePosition))
+            {
+                LogEvent($"not sure it is safe (safety {safety:0.00}): moving to another cover");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Shot at again while retreating or holding after a retreat: a chance of another retreat (a fresh route), higher if the bot had just felt safe
+    /// (startled). At most twice per reaction chain, and never against a close shooter (that is a fight).
+    /// </summary>
+    private bool TryRepeatRelocation(bool hit, float distance, float now)
+    {
+        if ((!Relocating && !_postRetreat) || now < _nextRepeatRelocate || _repeatRelocations >= REPEAT_RELOCATE_MAX || IsCloseRange(distance))
+        {
+            return false;
+        }
+        bool startled = _safetyBeforeShot >= 0.6f;
+        float chance = hit ? 0.6f : 0.25f;
+        if (startled)
+        {
+            chance = Mathf.Min(1f, chance + 0.3f);
+        }
+        switch (Bot.Info.Personality)
+        {
+            case EPersonality.Wreckless:
+            case EPersonality.GigaChad:
+            case EPersonality.Chad:
+                chance /= GlobalSettings.Fork.ShotAggressivePull;
+                break;
+            case EPersonality.Rat:
+            case EPersonality.Timmy:
+            case EPersonality.Coward:
+                chance = Mathf.Min(1f, chance * GlobalSettings.Fork.ShotTimidPull);
+                break;
+        }
+        if (Random.value > chance)
+        {
+            return false;
+        }
+        _nextRepeatRelocate = now + REPEAT_RELOCATE_INTERVAL;
+        float max = Mathf.Max(GlobalSettings.Fork.ShotRelocateMinDistance, GlobalSettings.Fork.ShotRelocateMaxDistance);
+        float retreat = startled ? max * 1.25f : max;
+        if (!TryStartRelocating(retreat))
+        {
+            return false;
+        }
+        _repeatRelocations++;
+        LogEvent($"shot again ({(hit ? "hit" : "bullet")} at {distance:0} m, safety was {_safetyBeforeShot:0.00}{(startled ? ", startled" : "")}): another retreat, {retreat:0} m");
+        return true;
     }
 
     // ---- retreat route and destination ----
@@ -1075,6 +1219,7 @@ public class ShotReactionClass : BotComponentClassBase
         {
             RelocatePoint = best;
             Bot.Cover.ClearShotState();
+            _postRetreat = false;
             Relocating = true;
             _relocateEnd = Time.time + fork.ShotRelocateTimeMax;
             Outcome = EShotReaction.None;
@@ -1387,6 +1532,7 @@ public class ShotReactionClass : BotComponentClassBase
         StartTrace(Time.time);
         SprintWhileInvestigating = false;
         _ambushUntil = 0f;
+        _postRetreat = false;
         Bot.Cover.ClearShotState();
         Outcome = EShotReaction.None;
         _hideUntil = 0f;
@@ -1641,6 +1787,8 @@ public class ShotReactionClass : BotComponentClassBase
         _followDone = false;
         _noCoverDone = false;
         _noCoverSince = -1f;
+        _postRetreat = false;
+        _repeatRelocations = 0;
         _ambushUntil = 0f;
         SprintWhileInvestigating = false;
         _nextRollTime = now + fork.ShotRerollInterval;
