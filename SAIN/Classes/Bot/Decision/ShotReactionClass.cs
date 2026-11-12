@@ -73,19 +73,19 @@ public class ShotReactionClass : BotComponentClassBase
     private const float STRONG_WEAPON_COVER_MAX = 0.6f;
 
     /// <summary>Investigate stops advancing when the bot is this close to the vague shot area (it is in ambush range) or hears the shooter.</summary>
-    private const float INVESTIGATE_STOP_DISTANCE = 15f;
+    private static float INVESTIGATE_STOP_DISTANCE => GlobalSettings.Fork.ShotInvestigateStopDistance;
     private const float INVESTIGATE_SOUND_AGE = 1.5f;
     private const float INVESTIGATE_SOUND_GRACE = 2f;
 
     /// <summary>After stopping, the bot holds cover and watches this long (scaled by personality), then the state ends.</summary>
-    private const float AMBUSH_TIME_MIN = 20f;
+    private static float AMBUSH_TIME_MIN => GlobalSettings.Fork.ShotAmbushMin;
 
     /// <summary>In an advance the bot holds each cover this long (scaled by personality) before it runs to the next one.</summary>
-    private const float HOP_HOLD_MIN = 3f;
+    private static float HOP_HOLD_MIN => GlobalSettings.Fork.ShotHopHoldMin;
 
     /// <summary>After a retreat arrives the bot holds cover this long (scaled by personality), then investigates cover to cover instead of strolling back.</summary>
-    private const float POST_RETREAT_HOLD_MIN = 30f;
-    private const float POST_RETREAT_HOLD_MAX = 60f;
+    private static float POST_RETREAT_HOLD_MIN => GlobalSettings.Fork.ShotPostRetreatHoldMin;
+    private static float POST_RETREAT_HOLD_MAX => GlobalSettings.Fork.ShotPostRetreatHoldMax;
 
     /// <summary>A hop that has not reached its cover after this long, or has stalled (not moving) for HOP_STALL_TIME, is abandoned; no new hop for HOP_RETRY_DELAY.</summary>
     private const float HOP_TIMEOUT = 12f;
@@ -96,7 +96,7 @@ public class ShotReactionClass : BotComponentClassBase
     private const float HIDE_EXTEND = 2f;
 
     /// <summary>After an investigation was broken by fire, the next break is only allowed after this long (so a player cannot kite a bot forever with single shots).</summary>
-    private const float BREAK_LOCKOUT = 15f;
+    private static float BREAK_LOCKOUT => GlobalSettings.Fork.ShotBreakLockout;
 
     /// <summary>A state whose hook never ran (the bot was busy with something earlier in the decision order) is ended this long after it expired.</summary>
     private const float EXPIRY_GRACE = 1f;
@@ -105,33 +105,33 @@ public class ShotReactionClass : BotComponentClassBase
     private const float DEGRADE_THROTTLE = 0.75f;
 
     /// <summary>Self preservation: a hit (or a close bullet) while the bot shelters in cover makes it look for another cover. Chances, scaled by personality; at most one move per interval.</summary>
-    private const float SELF_PRESERVE_HIT_CHANCE = 0.9f;
-    private const float SELF_PRESERVE_BULLET_CHANCE = 0.2f;
-    private const float SELF_PRESERVE_INTERVAL = 3f;
+    private static float SELF_PRESERVE_HIT_CHANCE => GlobalSettings.Fork.ShotSelfPreserveHit;
+    private static float SELF_PRESERVE_BULLET_CHANCE => GlobalSettings.Fork.ShotSelfPreserveBullet;
+    private static float SELF_PRESERVE_INTERVAL => GlobalSettings.Fork.ShotSelfPreserveInterval;
 
     /// <summary>
     /// A shooter this close (a quarter of the bot's reach, but at least 10 m and at most 25 m) is fought, not fled from:
     /// no self-preservation hop to another cover, and a hiding bot may fire back at the vague area.
     /// </summary>
-    private const float CLOSE_RANGE_MIN = 10f;
-    private const float CLOSE_RANGE_MAX = 25f;
-    private const float CLOSE_RANGE_REACH_FRACTION = 0.25f;
+    private static float CLOSE_RANGE_MIN => GlobalSettings.Fork.ShotCloseRangeMin;
+    private static float CLOSE_RANGE_MAX => GlobalSettings.Fork.ShotCloseRangeMax;
+    private static float CLOSE_RANGE_REACH_FRACTION => GlobalSettings.Fork.ShotCloseRangeReachFraction;
 
     /// <summary>
     /// Point blank (hard stop): shot from this close, even by an unseen shooter, running away does not work. Concealment (suppressor, prone) no longer
     /// matters and Fight gets at least this share, whatever the weapon, personality or state.
     /// </summary>
-    private const float POINT_BLANK_DISTANCE = 10f;
-    private const float POINT_BLANK_FIGHT_SHARE = 0.8f;
+    private static float POINT_BLANK_DISTANCE => GlobalSettings.Fork.ShotPointBlankDistance;
+    private static float POINT_BLANK_FIGHT_SHARE => GlobalSettings.Fork.ShotPointBlankFightShare;
 
     /// <summary>A hit (or a close bullet) while investigating breaks the advance: the bot runs for cover and reassesses (a new Cover reaction, which ends in a new follow-up pick).</summary>
-    private const float INVESTIGATE_BREAK_HIT_CHANCE = 1f;
-    private const float INVESTIGATE_BREAK_BULLET_CHANCE = 0.2f;
-    private const float HOP_HOLD_MAX = 7f;
-    private const float AMBUSH_TIME_MAX = 40f;
+    private static float INVESTIGATE_BREAK_HIT_CHANCE => GlobalSettings.Fork.ShotInvestigateBreakHit;
+    private static float INVESTIGATE_BREAK_BULLET_CHANCE => GlobalSettings.Fork.ShotInvestigateBreakBullet;
+    private static float HOP_HOLD_MAX => GlobalSettings.Fork.ShotHopHoldMax;
+    private static float AMBUSH_TIME_MAX => GlobalSettings.Fork.ShotAmbushMax;
 
     /// <summary>No usable cover: the finder may still be scanning, so the decision waits this long (the bot runs its short stopgap meanwhile).</summary>
-    private const float NO_COVER_GRACE = 0.8f;
+    private static float NO_COVER_GRACE => GlobalSettings.Fork.ShotNoCoverGrace;
 
     private enum EFollowUp
     {
@@ -741,7 +741,7 @@ public class ShotReactionClass : BotComponentClassBase
         _followDone = true;
         _noCoverDone = true;
         // Hold until it feels safe (random threshold, timid ones want more, aggressive ones less); the old hold time is the upper limit.
-        float threshold = Random.Range(0.6f, 0.9f);
+        float threshold = Random.Range(Mathf.Min(fork.ShotSafetyThresholdMin, fork.ShotSafetyThresholdMax), Mathf.Max(fork.ShotSafetyThresholdMin, fork.ShotSafetyThresholdMax));
         switch (Bot.Info.Personality)
         {
             case EPersonality.Wreckless:
@@ -799,16 +799,16 @@ public class ShotReactionClass : BotComponentClassBase
     // ---- "how sure am I that nobody is after me" ----
 
     /// <summary>Safety (0..1): quiet time, distance from the shot area and being out of its sight. Shots and sightings reset the quiet time.</summary>
-    private const float SAFETY_QUIET_FULL = 40f;
-    private const float SAFETY_DIST_START = 20f;
-    private const float SAFETY_DIST_FULL = 100f;
-    private const float POST_RETREAT_MIN_HOLD = 10f;
-    private const float MOBILE_SAFETY = 0.5f;
-    private const float REPEAT_RELOCATE_INTERVAL = 8f;
-    private const int REPEAT_RELOCATE_MAX = 2;
+    private static float SAFETY_QUIET_FULL => GlobalSettings.Fork.ShotSafetyQuietTime;
+    private static float SAFETY_DIST_START => GlobalSettings.Fork.ShotSafetyDistStart;
+    private static float SAFETY_DIST_FULL => GlobalSettings.Fork.ShotSafetyDistFull;
+    private static float POST_RETREAT_MIN_HOLD => GlobalSettings.Fork.ShotPostRetreatMinHold;
+    private static float MOBILE_SAFETY => GlobalSettings.Fork.ShotMobileSafety;
+    private static float REPEAT_RELOCATE_INTERVAL => GlobalSettings.Fork.ShotRepeatInterval;
+    private static int REPEAT_RELOCATE_MAX => GlobalSettings.Fork.ShotRepeatMax;
 
     /// <summary>After a hunt runs out (ambush over, time up, expired) with the shooter still unseen, SAIN's own search takes over: for this long it sprints instead of strolling.</summary>
-    private const float RETURN_WINDOW = 60f;
+    private static float RETURN_WINDOW => GlobalSettings.Fork.ShotReturnWindow;
 
     private float _returnUntil;
     private Enemy _returnEnemy;
@@ -868,7 +868,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         if (safety < MOBILE_SAFETY && now >= _nextMobileHop && Bot.Cover.CoverInUse != null)
         {
-            _nextMobileHop = now + Random.Range(6f, 12f);
+            _nextMobileHop = now + Random.Range(GlobalSettings.Fork.ShotMobileHopMin, GlobalSettings.Fork.ShotMobileHopMax);
             if (Bot.Cover.RelocateFromFire(_vaguePosition))
             {
                 LogEvent($"not sure it is safe (safety {safety:0.00}): moving to another cover");
@@ -886,11 +886,12 @@ public class ShotReactionClass : BotComponentClassBase
         {
             return false;
         }
-        bool startled = _safetyBeforeShot >= 0.6f;
-        float chance = hit ? 0.6f : 0.25f;
+        ForkSettings fork = GlobalSettings.Fork;
+        bool startled = _safetyBeforeShot >= fork.ShotRepeatStartledSafety;
+        float chance = hit ? fork.ShotRepeatHitChance : fork.ShotRepeatBulletChance;
         if (startled)
         {
-            chance = Mathf.Min(1f, chance + 0.3f);
+            chance = Mathf.Min(1f, chance + fork.ShotRepeatStartledBonus);
         }
         switch (Bot.Info.Personality)
         {
@@ -1041,16 +1042,17 @@ public class ShotReactionClass : BotComponentClassBase
 
     private ERoute PickRoute(float exposure)
     {
-        float direct = 0.25f;
-        float bend = 0.35f;
-        float zigzag = 0.20f;
-        float coverFirst = 0.20f;
-        if (exposure > 0.5f)
+        ForkSettings fork = GlobalSettings.Fork;
+        float direct = fork.ShotRouteDirect;
+        float bend = fork.ShotRouteBend;
+        float zigzag = fork.ShotRouteZigZag;
+        float coverFirst = fork.ShotRouteCoverFirst;
+        if (exposure > fork.ShotRouteExposureLimit)
         {
             // Mostly in the shooter's sight: the robotic straight run is the worst choice.
-            direct = 0.05f;
-            zigzag = 0.25f;
-            coverFirst = 0.35f;
+            direct = 5f;
+            zigzag = fork.ShotRouteZigZag * 1.25f;
+            coverFirst = fork.ShotRouteCoverFirst * 1.75f;
         }
         switch (Bot.Info.Personality)
         {
@@ -1120,7 +1122,7 @@ public class ShotReactionClass : BotComponentClassBase
         {
             case ERoute.Bend:
             {
-                if (!TryOffsetPoint(from, dest, Random.Range(0.35f, 0.65f), side * Random.Range(8f, 20f), out Vector3 waypoint) || !LegOk(from, waypoint) || !LegOk(waypoint, dest))
+                if (!TryOffsetPoint(from, dest, Random.Range(0.35f, 0.65f), side * Random.Range(GlobalSettings.Fork.ShotRouteOffsetMin, GlobalSettings.Fork.ShotRouteOffsetMax), out Vector3 waypoint) || !LegOk(from, waypoint) || !LegOk(waypoint, dest))
                 {
                     return false;
                 }
@@ -1130,8 +1132,8 @@ public class ShotReactionClass : BotComponentClassBase
             case ERoute.ZigZag:
             {
                 if (
-                    !TryOffsetPoint(from, dest, Random.Range(0.25f, 0.4f), side * Random.Range(8f, 18f), out Vector3 first)
-                    || !TryOffsetPoint(from, dest, Random.Range(0.6f, 0.75f), -side * Random.Range(8f, 18f), out Vector3 second)
+                    !TryOffsetPoint(from, dest, Random.Range(0.25f, 0.4f), side * Random.Range(GlobalSettings.Fork.ShotRouteOffsetMin, GlobalSettings.Fork.ShotRouteOffsetMax), out Vector3 first)
+                    || !TryOffsetPoint(from, dest, Random.Range(0.6f, 0.75f), -side * Random.Range(GlobalSettings.Fork.ShotRouteOffsetMin, GlobalSettings.Fork.ShotRouteOffsetMax), out Vector3 second)
                     || !LegOk(from, first)
                     || !LegOk(first, second)
                     || !LegOk(second, dest)
@@ -1316,53 +1318,54 @@ public class ShotReactionClass : BotComponentClassBase
     /// <summary>Positive = fight, negative = flee. Soft: the result feeds a logistic chance, not a threshold.</summary>
     private float NoCoverFightScore(float distance, float ratio, out string why)
     {
-        float score = -0.5f; // the roll already said "not fight": flight is the default
-        string parts = "base -0.5";
+        ForkSettings fork = GlobalSettings.Fork;
+        float score = fork.ShotNoCoverBias; // the roll already said "not fight": flight is the default
+        string parts = $"base {score:0.0#}";
         if (IsCloseRange(distance))
         {
-            score += 3f;
-            parts += ", close +3";
+            score += fork.ShotNoCoverCloseBonus;
+            parts += $", close +{fork.ShotNoCoverCloseBonus:0.0#}";
         }
         if (ratio <= 0.5f)
         {
-            score += 1.5f;
-            parts += ", inside half reach +1.5";
+            score += fork.ShotNoCoverNearBonus;
+            parts += $", inside half reach +{fork.ShotNoCoverNearBonus:0.0#}";
         }
         else if (ratio <= 1f)
         {
-            score += 0.3f;
-            parts += ", inside reach +0.3";
+            score += fork.ShotNoCoverReachBonus;
+            parts += $", inside reach +{fork.ShotNoCoverReachBonus:0.0#}";
         }
         else if (ratio <= FIGHT_REACH_LIMIT)
         {
-            score -= 1f;
-            parts += ", just out of reach -1";
+            score -= fork.ShotNoCoverJustOutPenalty;
+            parts += $", just out of reach -{fork.ShotNoCoverJustOutPenalty:0.0#}";
         }
         else
         {
-            score -= 2.5f;
-            parts += ", far out of reach -2.5";
+            score -= fork.ShotNoCoverFarPenalty;
+            parts += $", far out of reach -{fork.ShotNoCoverFarPenalty:0.0#}";
         }
         switch (Bot.Info.Personality)
         {
             case EPersonality.Wreckless:
             case EPersonality.GigaChad:
             case EPersonality.Chad:
-                score += 1f;
-                parts += ", aggressive +1";
+                score += fork.ShotNoCoverPersonality;
+                parts += $", aggressive +{fork.ShotNoCoverPersonality:0.0#}";
                 break;
             case EPersonality.Rat:
             case EPersonality.Timmy:
             case EPersonality.Coward:
-                score -= 1f;
-                parts += ", timid -1";
+                score -= fork.ShotNoCoverPersonality;
+                parts += $", timid -{fork.ShotNoCoverPersonality:0.0#}";
                 break;
         }
         ETagStatus health = Bot.Memory.Health.HealthStatus;
         if (health == ETagStatus.BadlyInjured || health == ETagStatus.Dying)
         {
-            score -= 0.5f;
-            parts += ", hurt -0.5";
+            score -= fork.ShotNoCoverHurtPenalty;
+            parts += $", hurt -{fork.ShotNoCoverHurtPenalty:0.0#}";
         }
         // (No "cannot sprint" bonus: MovementContext.CanSprint is also false for tired, healing or sprint-blocked bots, not just crippled legs.
         // A proper leg-damage test belongs to the crippling-damage work.)

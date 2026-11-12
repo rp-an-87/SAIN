@@ -711,6 +711,377 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(10f, 180f, 1f)]
     public float ShotRelocateTimeMax = 60f;
 
+    [DataMember]
+    [Category("Shot Reaction/Point blank & close range")]
+    [Name("Point Blank Distance")]
+    [Description("Hit or shot at from this close (meters) the bot fights back: no concealment effect and at least the Point Blank Fight Share. Hard stop, no fade. 0 = off.")]
+    [MinMax(0f, 30f, 1f)]
+    public float ShotPointBlankDistance = 10f;
+
+    [DataMember]
+    [Category("Shot Reaction/Point blank & close range")]
+    [Name("Point Blank Fight Share")]
+    [Description("Minimum chance of fighting back inside the Point Blank Distance. The rest is split between cover, suppress and hunt.")]
+    [MinMax(0.3f, 1f, 100f)]
+    public float ShotPointBlankFightShare = 0.8f;
+
+    [DataMember]
+    [Category("Shot Reaction/Point blank & close range")]
+    [Name("Close Range (share of reach)")]
+    [Description("Close range is this share of the bot weapon reach, clamped by the min and max below. Close range: no cover hops when shot at in cover, and a hiding bot may fire back.")]
+    [MinMax(0.05f, 1f, 100f)]
+    public float ShotCloseRangeReachFraction = 0.25f;
+
+    [DataMember]
+    [Category("Shot Reaction/Point blank & close range")]
+    [Name("Close Range Minimum")]
+    [Description("Close range is never smaller than this many meters.")]
+    [MinMax(0f, 50f, 1f)]
+    public float ShotCloseRangeMin = 10f;
+
+    [DataMember]
+    [Category("Shot Reaction/Point blank & close range")]
+    [Name("Close Range Maximum")]
+    [Description("Close range is never larger than this many meters.")]
+    [MinMax(5f, 100f, 1f)]
+    public float ShotCloseRangeMax = 25f;
+
+    [DataMember]
+    [Category("Shot Reaction/No cover (fight or flight)")]
+    [Name("No Cover Grace Time")]
+    [Description("Seconds the bot waits for the cover finder before deciding fight or flight when it has no cover.")]
+    [MinMax(0f, 3f, 10f)]
+    public float ShotNoCoverGrace = 0.8f;
+
+    [DataMember]
+    [Category("Shot Reaction/No cover (fight or flight)")]
+    [Name("Base Fight Score")]
+    [Description("Starting score of the fight-or-flight decision. Positive = fights more. The fight chance is 1 / (1 + e^-score).")]
+    [MinMax(-5f, 5f, 10f)]
+    public float ShotNoCoverBias = -0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/No cover (fight or flight)")]
+    [Name("Close Range Bonus")]
+    [Description("Added to the fight score when the shooter is within close range.")]
+    [MinMax(0f, 10f, 10f)]
+    public float ShotNoCoverCloseBonus = 3f;
+
+    [DataMember]
+    [Category("Shot Reaction/No cover (fight or flight)")]
+    [Name("Inside Half Reach Bonus")]
+    [Description("Added when the shooter is within half of the weapon reach.")]
+    [MinMax(0f, 10f, 10f)]
+    public float ShotNoCoverNearBonus = 1.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/No cover (fight or flight)")]
+    [Name("Inside Reach Bonus")]
+    [Description("Added when the shooter is within the weapon reach (beyond half).")]
+    [MinMax(0f, 10f, 10f)]
+    public float ShotNoCoverReachBonus = 0.3f;
+
+    [DataMember]
+    [Category("Shot Reaction/No cover (fight or flight)")]
+    [Name("Just Out Of Reach Penalty")]
+    [Description("Subtracted when the shooter is just beyond the reach (up to 1.25x).")]
+    [MinMax(0f, 10f, 10f)]
+    public float ShotNoCoverJustOutPenalty = 1f;
+
+    [DataMember]
+    [Category("Shot Reaction/No cover (fight or flight)")]
+    [Name("Far Out Of Reach Penalty")]
+    [Description("Subtracted when the shooter is far beyond the reach.")]
+    [MinMax(0f, 10f, 10f)]
+    public float ShotNoCoverFarPenalty = 2.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/No cover (fight or flight)")]
+    [Name("Personality Weight")]
+    [Description("Added for aggressive personalities, subtracted for timid ones.")]
+    [MinMax(0f, 5f, 10f)]
+    public float ShotNoCoverPersonality = 1f;
+
+    [DataMember]
+    [Category("Shot Reaction/No cover (fight or flight)")]
+    [Name("Hurt Penalty")]
+    [Description("Subtracted when the bot is badly injured.")]
+    [MinMax(0f, 5f, 10f)]
+    public float ShotNoCoverHurtPenalty = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover quality (bushes)")]
+    [Name("Bush Path Penalty")]
+    [Description("A bush counts as this many meters farther away when a bot picks cover, so solid cover wins unless a bush is that much closer. 0 = bushes are as good as walls.")]
+    [MinMax(0f, 100f, 1f)]
+    public float ShotFoliagePenalty = 30f;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover quality (bushes)")]
+    [Name("Bush Fade Start Distance")]
+    [Description("A bush closer than this to the shot area keeps the full penalty. Beyond it, and out of the shot area line of sight, the penalty fades.")]
+    [MinMax(0f, 150f, 1f)]
+    public float ShotFoliageFadeStart = 30f;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover quality (bushes)")]
+    [Name("Bush Fade End Distance")]
+    [Description("A bush this far (or farther) from the shot area and out of its line of sight has no penalty: a good ambush spot.")]
+    [MinMax(10f, 300f, 1f)]
+    public float ShotFoliageFadeEnd = 90f;
+
+    [DataMember]
+    [Category("Shot Reaction/Retreat route")]
+    [Name("Route: Direct Weight")]
+    [Description("Weight of the straight run to the retreat point.")]
+    [MinMax(0f, 100f, 1f)]
+    public float ShotRouteDirect = 25f;
+
+    [DataMember]
+    [Category("Shot Reaction/Retreat route")]
+    [Name("Route: Bend Weight")]
+    [Description("Weight of a run with one sideways waypoint.")]
+    [MinMax(0f, 100f, 1f)]
+    public float ShotRouteBend = 35f;
+
+    [DataMember]
+    [Category("Shot Reaction/Retreat route")]
+    [Name("Route: Zig-Zag Weight")]
+    [Description("Weight of a run with two waypoints on alternating sides.")]
+    [MinMax(0f, 100f, 1f)]
+    public float ShotRouteZigZag = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Retreat route")]
+    [Name("Route: Cover First Weight")]
+    [Description("Weight of a run that first goes to the nearest point the shot area cannot see.")]
+    [MinMax(0f, 100f, 1f)]
+    public float ShotRouteCoverFirst = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Retreat route")]
+    [Name("Exposed Line Limit")]
+    [Description("When more than this share of the straight line is visible from the shot area, the Direct weight drops to 5 and Cover First and Zig-Zag gain weight.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotRouteExposureLimit = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Retreat route")]
+    [Name("Waypoint Offset Min")]
+    [Description("Smallest sideways offset (meters) of a bend or zig-zag waypoint.")]
+    [MinMax(2f, 40f, 1f)]
+    public float ShotRouteOffsetMin = 8f;
+
+    [DataMember]
+    [Category("Shot Reaction/Retreat route")]
+    [Name("Waypoint Offset Max")]
+    [Description("Largest sideways offset (meters) of a bend or zig-zag waypoint.")]
+    [MinMax(4f, 60f, 1f)]
+    public float ShotRouteOffsetMax = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Safety & hold")]
+    [Name("Safety: Quiet Time")]
+    [Description("Seconds without being shot at or seeing the shooter until the quiet part of the safety level is full.")]
+    [MinMax(5f, 180f, 1f)]
+    public float ShotSafetyQuietTime = 40f;
+
+    [DataMember]
+    [Category("Shot Reaction/Safety & hold")]
+    [Name("Safety: Distance Start")]
+    [Description("Distance from the shot area where the distance part of the safety level starts to count.")]
+    [MinMax(0f, 100f, 1f)]
+    public float ShotSafetyDistStart = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Safety & hold")]
+    [Name("Safety: Distance Full")]
+    [Description("Distance from the shot area where the distance part of the safety level is full.")]
+    [MinMax(20f, 300f, 1f)]
+    public float ShotSafetyDistFull = 100f;
+
+    [DataMember]
+    [Category("Shot Reaction/Safety & hold")]
+    [Name("Safe Enough: Min")]
+    [Description("After a retreat the bot holds until its safety level reaches a random value between Min and Max (aggressive bots lower, timid bots higher).")]
+    [MinMax(0.1f, 1f, 100f)]
+    public float ShotSafetyThresholdMin = 0.6f;
+
+    [DataMember]
+    [Category("Shot Reaction/Safety & hold")]
+    [Name("Safe Enough: Max")]
+    [Description("Upper end of the random safe-enough level.")]
+    [MinMax(0.1f, 1f, 100f)]
+    public float ShotSafetyThresholdMax = 0.9f;
+
+    [DataMember]
+    [Category("Shot Reaction/Safety & hold")]
+    [Name("Hold After Retreat: Minimum")]
+    [Description("The bot holds at least this many seconds after a retreat, whatever its safety level.")]
+    [MinMax(0f, 60f, 1f)]
+    public float ShotPostRetreatMinHold = 10f;
+
+    [DataMember]
+    [Category("Shot Reaction/Safety & hold")]
+    [Name("Hold After Retreat: Longest (min)")]
+    [Description("Upper limit of the hold after a retreat is a random value between this and the next setting (scaled by personality).")]
+    [MinMax(5f, 180f, 1f)]
+    public float ShotPostRetreatHoldMin = 30f;
+
+    [DataMember]
+    [Category("Shot Reaction/Safety & hold")]
+    [Name("Hold After Retreat: Longest (max)")]
+    [Description("Upper end of the longest hold after a retreat.")]
+    [MinMax(5f, 300f, 1f)]
+    public float ShotPostRetreatHoldMax = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction/Safety & hold")]
+    [Name("Stay Mobile Below Safety")]
+    [Description("While the safety level is below this, a holding bot moves to another cover every few seconds instead of sitting still.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotMobileSafety = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Safety & hold")]
+    [Name("Mobile Hop Interval: Min")]
+    [Description("Shortest time between cover moves while the bot does not feel safe.")]
+    [MinMax(2f, 60f, 1f)]
+    public float ShotMobileHopMin = 6f;
+
+    [DataMember]
+    [Category("Shot Reaction/Safety & hold")]
+    [Name("Mobile Hop Interval: Max")]
+    [Description("Longest time between cover moves while the bot does not feel safe.")]
+    [MinMax(2f, 60f, 1f)]
+    public float ShotMobileHopMax = 12f;
+
+    [DataMember]
+    [Category("Shot Reaction/Shot again")]
+    [Name("Another Retreat: Hit Chance")]
+    [Description("Chance that a hit during a retreat or the hold after it starts another retreat (personality scaled).")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotRepeatHitChance = 0.6f;
+
+    [DataMember]
+    [Category("Shot Reaction/Shot again")]
+    [Name("Another Retreat: Bullet Chance")]
+    [Description("The same for a bullet passing close.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotRepeatBulletChance = 0.25f;
+
+    [DataMember]
+    [Category("Shot Reaction/Shot again")]
+    [Name("Startled Bonus")]
+    [Description("Added to the chance when the bot had just felt safe (safety at or above the startled level).")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotRepeatStartledBonus = 0.3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Shot again")]
+    [Name("Startled Safety Level")]
+    [Description("A bot whose safety level was at least this when shot counts as startled (and retreats 25 percent farther).")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotRepeatStartledSafety = 0.6f;
+
+    [DataMember]
+    [Category("Shot Reaction/Shot again")]
+    [Name("Another Retreat: Max Count")]
+    [Description("Most extra retreats per reaction chain.")]
+    [MinMax(0f, 10f, 1f)]
+    public int ShotRepeatMax = 2;
+
+    [DataMember]
+    [Category("Shot Reaction/Shot again")]
+    [Name("Another Retreat: Interval")]
+    [Description("Minimum seconds between extra retreats.")]
+    [MinMax(0f, 60f, 1f)]
+    public float ShotRepeatInterval = 8f;
+
+    [DataMember]
+    [Category("Shot Reaction/Self preservation")]
+    [Name("Move On Hit")]
+    [Description("Chance that a bot hit while sheltering moves to another cover (personality scaled). Not at close range, never while fighting.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotSelfPreserveHit = 0.9f;
+
+    [DataMember]
+    [Category("Shot Reaction/Self preservation")]
+    [Name("Move On Bullet")]
+    [Description("The same for a bullet passing close (a bot in a bush uses the hit chance).")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotSelfPreserveBullet = 0.2f;
+
+    [DataMember]
+    [Category("Shot Reaction/Self preservation")]
+    [Name("Move Interval")]
+    [Description("Minimum seconds between such cover moves.")]
+    [MinMax(0f, 30f, 1f)]
+    public float ShotSelfPreserveInterval = 3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Self preservation")]
+    [Name("Break Investigation: Hit Chance")]
+    [Description("Chance that a hit while investigating makes the bot run for cover and reassess.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotInvestigateBreakHit = 1f;
+
+    [DataMember]
+    [Category("Shot Reaction/Self preservation")]
+    [Name("Break Investigation: Bullet Chance")]
+    [Description("The same for a bullet passing close.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotInvestigateBreakBullet = 0.2f;
+
+    [DataMember]
+    [Category("Shot Reaction/Self preservation")]
+    [Name("Break Investigation: Lockout")]
+    [Description("After an investigation was broken by fire, no further break for this many seconds.")]
+    [MinMax(0f, 120f, 1f)]
+    public float ShotBreakLockout = 15f;
+
+    [DataMember]
+    [Category("Shot Reaction/Investigate timing")]
+    [Name("Cover Hold: Min")]
+    [Description("While investigating, the bot holds each cover at least this many seconds (personality scaled).")]
+    [MinMax(0f, 30f, 1f)]
+    public float ShotHopHoldMin = 3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Investigate timing")]
+    [Name("Cover Hold: Max")]
+    [Description("The longest hold in each cover while investigating.")]
+    [MinMax(0f, 60f, 1f)]
+    public float ShotHopHoldMax = 7f;
+
+    [DataMember]
+    [Category("Shot Reaction/Investigate timing")]
+    [Name("Ambush Hold: Min")]
+    [Description("When the bot gets close to the shot area or hears the shooter it holds an ambush this many seconds at least.")]
+    [MinMax(0f, 120f, 1f)]
+    public float ShotAmbushMin = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Investigate timing")]
+    [Name("Ambush Hold: Max")]
+    [Description("Longest ambush hold.")]
+    [MinMax(0f, 240f, 1f)]
+    public float ShotAmbushMax = 40f;
+
+    [DataMember]
+    [Category("Shot Reaction/Investigate timing")]
+    [Name("Ambush Distance")]
+    [Description("The bot stops advancing and holds when it is this close (meters) to the shot area.")]
+    [MinMax(0f, 100f, 1f)]
+    public float ShotInvestigateStopDistance = 15f;
+
+    [DataMember]
+    [Category("Shot Reaction/Investigate timing")]
+    [Name("Sprinting Search After Hunt")]
+    [Description("After a hunt runs out with the shooter unseen, the bot searches at a run for this many seconds. 0 = off.")]
+    [MinMax(0f, 300f, 1f)]
+    public float ShotReturnWindow = 60f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

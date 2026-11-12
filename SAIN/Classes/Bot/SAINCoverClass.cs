@@ -224,7 +224,7 @@ public class SAINCoverClass : BotComponentClassBase
     }
 
     /// <summary>A cover on the Foliage layer counts as this many metres further away than it is (see FindCoverPoint).</summary>
-    private const float FOLIAGE_PATH_PENALTY = 30f;
+    private static float FOLIAGE_PATH_PENALTY => GlobalSettingsClass.Instance.Fork.ShotFoliagePenalty;
 
     private static int _foliageLayer = -1;
 
@@ -250,8 +250,8 @@ public class SAINCoverClass : BotComponentClassBase
     }
 
     /// <summary>A bush is a bad place to stay near the shot area, but a fine ambush spot far from it and out of its sight: the penalty fades with that.</summary>
-    private const float FOLIAGE_FADE_START = 30f;
-    private const float FOLIAGE_FADE_END = 90f;
+    private static float FOLIAGE_FADE_START => GlobalSettingsClass.Instance.Fork.ShotFoliageFadeStart;
+    private static float FOLIAGE_FADE_END => GlobalSettingsClass.Instance.Fork.ShotFoliageFadeEnd;
 
     private static int _solidSightMask = -1;
     private readonly Dictionary<CoverPoint, float> _costTemp = [];
