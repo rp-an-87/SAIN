@@ -495,6 +495,7 @@ public class ShotReactionClass : BotComponentClassBase
     private void StopRelocating(float now, string reason)
     {
         LogEvent($"relocation over: {reason}");
+        StartTrace(now);
         Relocating = false;
         // Done: the shooter is forgotten (unless new information arrives) and the bot resumes its task from here.
         _forgetAt = now;
@@ -573,9 +574,37 @@ public class ShotReactionClass : BotComponentClassBase
         }
     }
 
+    /// <summary>Diagnostics: after a reaction ends, logs every 2 s for 60 s what drives the bot (active layer, node, reason) and how far it is from the shot area.</summary>
+    private void StartTrace(float now)
+    {
+        if (!GlobalSettings.Fork.ShotReactionLog)
+        {
+            return;
+        }
+        _traceUntil = now + 60f;
+        _nextTrace = now;
+    }
+
+    public override void ManualUpdate()
+    {
+        float now = Time.time;
+        if (now >= _traceUntil || now < _nextTrace)
+        {
+            return;
+        }
+        _nextTrace = now + 2f;
+        var agent = Bot.BotOwner?.Brain?.Agent;
+        Vector3 shotArea = now - _vaguePositionTime < 600f ? _vaguePosition : Bot.Position;
+        LogEvent(
+            $"trace: layer [{agent?.UsingLayer}] node [{agent?.LastNode}] reason [{agent?.LastReason}], SAIN layer {Bot.ActiveLayer}, enemy {(Bot.GoalEnemy != null)}, "
+                + $"moving {Bot.Mover.Moving}, {(Bot.Position - shotArea).magnitude:0} m from the shot area, {(Bot.Position - RelocatePoint).magnitude:0} m from the relocation point"
+        );
+    }
+
     private void End(string reason)
     {
         LogEvent($"{Outcome} reaction over: {reason}");
+        StartTrace(Time.time);
         Outcome = EShotReaction.None;
         _hideUntil = 0f;
         _expireTime = 0f;
@@ -869,6 +898,8 @@ public class ShotReactionClass : BotComponentClassBase
     private bool _steerLogged;
     private float _inCoverSince = -1f;
     private bool _followDone;
+    private float _traceUntil;
+    private float _nextTrace;
     private Enemy _lastSeenEnemy;
     private float _lastSeenTime = -999f;
     private float _relocateEnd;
