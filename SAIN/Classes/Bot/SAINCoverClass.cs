@@ -212,7 +212,7 @@ public class SAINCoverClass : BotComponentClassBase
             if (Bot.Mover.GoToCoverPoint(coverPoint, _shallSprint, ESprintUrgency.High))
             {
                 LogShotCover(
-                    $"cover search: picked candidate {i + 1} of {_coverPoints.Count}, path {coverPoint.PathData.PathLength:0} m, sprint {_shallSprint}, "
+                    $"cover search: picked candidate {i + 1} of {_coverPoints.Count}, path {coverPoint.PathData.PathLength:0} m, sprint {_shallSprint} ({_lastSprintReason}), "
                         + $"cover '{coverPoint.Collider?.name}' layer {(coverPoint.Collider != null ? LayerMask.LayerToName(coverPoint.Collider.gameObject.layer) : "?")}{(IsFoliage(coverPoint) ? " (foliage)" : "")}"
                 );
                 return coverPoint;

@@ -87,7 +87,6 @@ public class ShotReactionClass : BotComponentClassBase
     private static float POST_RETREAT_HOLD_MAX => GlobalSettings.Fork.ShotPostRetreatHoldMax;
 
     /// <summary>A hop that has not reached its cover after this long, or has stalled (not moving) for HOP_STALL_TIME, is abandoned; no new hop for HOP_RETRY_DELAY.</summary>
-    private const float HOP_TIMEOUT = 12f;
     private const float HOP_STALL_TIME = 3f;
     private const float HOP_RETRY_DELAY = 5f;
 
@@ -507,13 +506,25 @@ public class ShotReactionClass : BotComponentClassBase
         {
             float hopAge = now - Bot.Cover.AdvanceStartTime;
             bool stalled = hopAge > HOP_STALL_TIME && !Bot.Mover.Moving && Bot.Cover.CoverPoint_MovingTo == null;
-            if (hopAge <= HOP_TIMEOUT && !stalled)
+            var hopTarget = Bot.Cover.CoverPoint_MovingTo;
+            if (hopTarget != null)
+            {
+                float hopDistance = Vector3.Distance(Bot.Position, hopTarget.Position);
+                if (hopDistance < _hopBestDistance - 1f)
+                {
+                    _hopBestDistance = hopDistance;
+                    _hopProgressTime = now;
+                }
+            }
+            ForkSettings hopFork = GlobalSettings.Fork;
+            bool noProgress = now - _hopProgressTime > hopFork.ShotHopNoProgressTime;
+            if (hopAge <= hopFork.ShotHopMaxTime && !stalled && !noProgress)
             {
                 decision = ECombatDecision.SeekCover;
                 return true;
             }
-            // The hop is not getting anywhere (no path, blocked): give it up instead of standing in the open.
-            LogEvent($"advance: hop abandoned ({(stalled ? "stalled" : "timed out")} after {hopAge:0.0} s)");
+            // The hop is not getting anywhere (no path, blocked, no progress): give it up instead of standing in the open.
+            LogEvent($"advance: hop abandoned ({(stalled ? "stalled" : noProgress ? "no progress" : "too long")} after {hopAge:0.0} s)");
             Bot.Cover.StopAdvance();
             _noHopUntil = now + HOP_RETRY_DELAY;
         }
@@ -525,6 +536,8 @@ public class ShotReactionClass : BotComponentClassBase
         }
         if (now >= _noHopUntil && Bot.Cover.StartAdvanceHop(area))
         {
+            _hopBestDistance = float.MaxValue;
+            _hopProgressTime = now;
             _hopHold = HopHoldTime();
             LogEvent("advance: next cover closer to the shot area");
             decision = ECombatDecision.SeekCover;
@@ -551,7 +564,7 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     private bool TryBreakInvestigate(Enemy enemy, float distance, bool hit, float now)
     {
-        if (Outcome != EShotReaction.Hunt || now < _hideUntil || Relocating || now < _nextBreakAllowed)
+        if (Outcome != EShotReaction.Hunt || now < _hideUntil || Relocating || now < _nextBreakAllowed || now < _nextBreakRoll || IsCloseRange(distance))
         {
             return false;
         }
@@ -569,6 +582,8 @@ public class ShotReactionClass : BotComponentClassBase
                 chance = Mathf.Min(1f, chance * GlobalSettings.Fork.ShotTimidPull);
                 break;
         }
+        // One attempt per second: a burst of flyby bullets must not roll the chance again and again.
+        _nextBreakRoll = now + 1f;
         if (Random.value > chance)
         {
             return false;
@@ -620,11 +635,12 @@ public class ShotReactionClass : BotComponentClassBase
                 chance = Mathf.Min(1f, chance * GlobalSettings.Fork.ShotTimidPull);
                 break;
         }
+        // Every attempt uses up the interval, hit or miss: a burst of flyby bullets must not roll the chance again and again.
+        _nextSelfPreserve = now + SELF_PRESERVE_INTERVAL;
         if (Random.value > chance)
         {
             return;
         }
-        _nextSelfPreserve = now + SELF_PRESERVE_INTERVAL;
         bool inFoliage = Bot.Cover.InFoliageCover;
         if (Bot.Cover.RelocateFromFire(_vaguePosition))
         {
@@ -844,6 +860,9 @@ public class ShotReactionClass : BotComponentClassBase
     private float _safetyThreshold;
     private float _nextMobileHop;
     private float _nextRepeatRelocate;
+    private float _nextBreakRoll;
+    private float _hopBestDistance = float.MaxValue;
+    private float _hopProgressTime;
     private float _retreatStarted = -999f;
     private int _repeatRelocations;
 
@@ -880,6 +899,7 @@ public class ShotReactionClass : BotComponentClassBase
             _postRetreat = false;
             _hideUntil = now;
             _investigateStart = now;
+            _expireTime = now + GlobalSettings.Fork.ShotHuntTimeMax;
             LogEvent($"safe enough (safety {safety:0.00} >= {_safetyThreshold:0.00}): ending the hold, investigating cover to cover");
             return;
         }
@@ -923,11 +943,12 @@ public class ShotReactionClass : BotComponentClassBase
                 chance = Mathf.Min(1f, chance * GlobalSettings.Fork.ShotTimidPull);
                 break;
         }
+        // Every attempt uses up the interval (a burst must not roll again and again).
+        _nextRepeatRelocate = now + REPEAT_RELOCATE_INTERVAL;
         if (Random.value > chance)
         {
             return false;
         }
-        _nextRepeatRelocate = now + REPEAT_RELOCATE_INTERVAL;
         float max = Mathf.Max(GlobalSettings.Fork.ShotRelocateMinDistance, GlobalSettings.Fork.ShotRelocateMaxDistance);
         float retreat = startled ? max * 1.25f : max;
         if (!TryStartRelocating(retreat))
@@ -1506,6 +1527,10 @@ public class ShotReactionClass : BotComponentClassBase
             else if (Relocating && now >= _relocateEnd + EXPIRY_GRACE)
             {
                 StopRelocating(now, "time limit");
+                if (Enabled && !(SeesShooter(_enemy) && _enemy.CanShoot))
+                {
+                    StartPostRetreat(_enemy, now);
+                }
             }
             else if (Outcome != EShotReaction.None && now >= _expireTime + EXPIRY_GRACE)
             {
@@ -1732,7 +1757,8 @@ public class ShotReactionClass : BotComponentClassBase
         if (fork.ShotReactionLog)
         {
             Logger.LogInfoAlways(
-                $"[ShotReaction] t={Time.time:0.0} {Bot.name} ({Bot.Info.Personality}) vs {enemy.EnemyName}: dist {distance:0} m, reach {reach:0} m, hit {hit}, visible {enemy.IsVisible} ({enemy.VisibleDuration:0.0} s), look angle {Vector3.Angle(Bot.LookDirection, enemy.EnemyPosition - Bot.Position):0} deg, moving {Bot.Mover.Moving}, running {Bot.Mover.Running}, "
+                $"[ShotReaction] t={Time.time:0.0} {Bot.name} ({Bot.Info.Personality}) vs {enemy.EnemyName}: dist {distance:0} m, reach {reach:0} m, hit {hit}, visible {enemy.IsVisible} ({enemy.VisibleDuration:0.0} s), look angle {lookAngle:0} deg, moving {Bot.Mover.Moving}, running {Bot.Mover.Running}, "
+                    + $"weapon {weaponInfo.EWeaponClass} {weaponInfo.SelectedFireMode}{(weaponInfo.HasFireMode(Weapon.EFireMode.fullauto) ? " (full auto available)" : "")}, health {health}, bullets {Bot.BotOwner.WeaponManager?.HaveBullets} reloading {Bot.BotOwner.WeaponManager?.Reload?.Reloading}, "
                     + $"shares cover {cover:0.00} fight {fight:0.00}{(pointBlank ? " (point blank)" : "")} -> {outcome}"
             );
         }

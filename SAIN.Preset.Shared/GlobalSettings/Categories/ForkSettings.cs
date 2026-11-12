@@ -183,13 +183,13 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Category("Range/Brain filter")]
     [Name("Brain: Raiders")]
     [Description("Raiders (pmcBot: Labs, Reserve) use the fork's range behavior (sight-adjusted reach, shoot and suppress limits, over-reach fire).")]
-    public bool RangeBrainRaider = false;
+    public bool RangeBrainRaider = true;
 
     [DataMember]
     [Category("Range/Brain filter")]
     [Name("Brain: Scavs")]
     [Description("Regular scavs, scav groups and tagged-and-cursed scavs use the fork's range behavior (sight-adjusted reach, shoot and suppress limits, over-reach fire).")]
-    public bool RangeBrainScav = false;
+    public bool RangeBrainScav = true;
 
     [DataMember]
     [Category("Range/Brain filter")]
@@ -201,31 +201,31 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Category("Range/Brain filter")]
     [Name("Brain: Cultists")]
     [Description("Cultists use the fork's range behavior (sight-adjusted reach, shoot and suppress limits, over-reach fire).")]
-    public bool RangeBrainCultist = false;
+    public bool RangeBrainCultist = true;
 
     [DataMember]
     [Category("Range/Brain filter")]
     [Name("Brain: Bosses")]
     [Description("Bosses (not the Goons) use the fork's range behavior (sight-adjusted reach, shoot and suppress limits, over-reach fire).")]
-    public bool RangeBrainBoss = false;
+    public bool RangeBrainBoss = true;
 
     [DataMember]
     [Category("Range/Brain filter")]
     [Name("Brain: Boss Followers")]
     [Description("Boss guards (not the Goons) use the fork's range behavior (sight-adjusted reach, shoot and suppress limits, over-reach fire).")]
-    public bool RangeBrainFollower = false;
+    public bool RangeBrainFollower = true;
 
     [DataMember]
     [Category("Range/Brain filter")]
     [Name("Brain: Goons")]
     [Description("Knight, Big Pipe and Birdeye use the fork's range behavior (sight-adjusted reach, shoot and suppress limits, over-reach fire).")]
-    public bool RangeBrainGoon = false;
+    public bool RangeBrainGoon = true;
 
     [DataMember]
     [Category("Range/Brain filter")]
     [Name("Brain: Event Bots")]
     [Description("Event bots (crazy scav event, gifter) use the fork's range behavior (sight-adjusted reach, shoot and suppress limits, over-reach fire).")]
-    public bool RangeBrainEvent = false;
+    public bool RangeBrainEvent = true;
 
     [DataMember]
     [Category("Range/Brain filter")]
@@ -351,7 +351,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Category("Shot Reaction/General")]
     [Name("Shot Reaction: Log Rolls")]
     [Description("Write every reaction roll (distance, reach, weights, outcome) to the BepInEx log. For tuning.")]
-    public bool ShotReactionLog = false;
+    public bool ShotReactionLog = true;
 
     [DataMember]
     [Category("Shot Reaction/Brain filter")]
@@ -369,13 +369,13 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Category("Shot Reaction/Brain filter")]
     [Name("Brain: Raiders")]
     [Description("Raiders (pmcBot: Labs, Reserve) use the fork's shot reaction.")]
-    public bool ShotBrainRaider = false;
+    public bool ShotBrainRaider = true;
 
     [DataMember]
     [Category("Shot Reaction/Brain filter")]
     [Name("Brain: Scavs")]
     [Description("Regular scavs, scav groups and tagged-and-cursed scavs use the fork's shot reaction.")]
-    public bool ShotBrainScav = false;
+    public bool ShotBrainScav = true;
 
     [DataMember]
     [Category("Shot Reaction/Brain filter")]
@@ -387,31 +387,31 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Category("Shot Reaction/Brain filter")]
     [Name("Brain: Cultists")]
     [Description("Cultists use the fork's shot reaction.")]
-    public bool ShotBrainCultist = false;
+    public bool ShotBrainCultist = true;
 
     [DataMember]
     [Category("Shot Reaction/Brain filter")]
     [Name("Brain: Bosses")]
     [Description("Bosses (not the Goons) use the fork's shot reaction.")]
-    public bool ShotBrainBoss = false;
+    public bool ShotBrainBoss = true;
 
     [DataMember]
     [Category("Shot Reaction/Brain filter")]
     [Name("Brain: Boss Followers")]
     [Description("Boss guards (not the Goons) use the fork's shot reaction.")]
-    public bool ShotBrainFollower = false;
+    public bool ShotBrainFollower = true;
 
     [DataMember]
     [Category("Shot Reaction/Brain filter")]
     [Name("Brain: Goons")]
     [Description("Knight, Big Pipe and Birdeye use the fork's shot reaction.")]
-    public bool ShotBrainGoon = false;
+    public bool ShotBrainGoon = true;
 
     [DataMember]
     [Category("Shot Reaction/Brain filter")]
     [Name("Brain: Event Bots")]
     [Description("Event bots (crazy scav event, gifter) use the fork's shot reaction.")]
-    public bool ShotBrainEvent = false;
+    public bool ShotBrainEvent = true;
 
     [DataMember]
     [Category("Shot Reaction/Brain filter")]
@@ -487,7 +487,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Fight Max Share")]
     [Description("The most (0-1) the Fight outcome can get of a roll, whatever the personality and weapon pull.")]
     [MinMax(0f, 1f, 100f)]
-    public float ShotFightMaxShare = 0.5f;
+    public float ShotFightMaxShare = 0.6f;
 
     [DataMember]
     [Category("Shot Reaction/Pulls")]
@@ -571,7 +571,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Hunt Time Max")]
     [Description("A bot that chose to hunt gives up after this many seconds from the shot if it has not seen the shooter.")]
     [MinMax(5f, 180f, 1f)]
-    public float ShotHuntTimeMax = 40f;
+    public float ShotHuntTimeMax = 90f;
 
     [DataMember]
     [Category("Shot Reaction/Position & timing")]
@@ -709,14 +709,14 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Close Range Bonus")]
     [Description("Added to the fight score when the shooter is within close range.")]
     [MinMax(0f, 10f, 10f)]
-    public float ShotNoCoverCloseBonus = 3f;
+    public float ShotNoCoverCloseBonus = 1.5f;
 
     [DataMember]
     [Category("Shot Reaction/No cover (fight or flight)")]
     [Name("Inside Half Reach Bonus")]
     [Description("Added when the shooter is within half of the weapon reach.")]
     [MinMax(0f, 10f, 10f)]
-    public float ShotNoCoverNearBonus = 1.5f;
+    public float ShotNoCoverNearBonus = 0.7f;
 
     [DataMember]
     [Category("Shot Reaction/No cover (fight or flight)")]
@@ -1137,6 +1137,20 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("Multiplies the distance (as a share of the bot's reach) before the zone weights are read. Below 1 every distance counts as shorter, so bots fight more; above 1 they hide more. Does not change point blank, close range, or the fade of Fight beyond the real reach.")]
     [MinMax(0.3f, 2f, 100f)]
     public float ShotDistanceScale = 0.8f;
+
+    [DataMember]
+    [Category("Shot Reaction/Investigate timing")]
+    [Name("Hop: No Progress Time")]
+    [Description("An investigation hop is abandoned when the bot has not gotten closer to its cover for this many seconds.")]
+    [MinMax(1f, 30f, 10f)]
+    public float ShotHopNoProgressTime = 5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Investigate timing")]
+    [Name("Hop: Longest Time")]
+    [Description("The longest an investigation hop may take (seconds), however much progress it makes.")]
+    [MinMax(10f, 120f, 1f)]
+    public float ShotHopMaxTime = 40f;
 
     public override void Init(List<ISAINSettings> list)
     {
