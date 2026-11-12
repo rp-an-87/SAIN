@@ -89,8 +89,8 @@ public class ShotReactionClass : BotComponentClassBase
     public ShotReactionClass(BotComponent bot)
         : base(bot)
     {
-        // Everything is event driven or evaluated when asked.
-        CanEverTick = false;
+        // Everything is event driven or evaluated when asked; ManualUpdate only runs the diagnostic trace (early return when idle).
+        CanEverTick = true;
     }
 
     /// <summary>True if the fork's shot reaction is switched on for this bot (master switch and brain filter).</summary>
