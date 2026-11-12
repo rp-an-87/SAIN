@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using EFT;
+using EFT.InventoryLogic;
 using SAIN.Components;
 using SAIN.Models.Enums;
 using SAIN.Models.Structs;
@@ -843,6 +844,7 @@ public class ShotReactionClass : BotComponentClassBase
     private float _safetyThreshold;
     private float _nextMobileHop;
     private float _nextRepeatRelocate;
+    private float _retreatStarted = -999f;
     private int _repeatRelocations;
 
     private float Safety(float now, bool fresh = false)
@@ -897,7 +899,7 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     private bool TryRepeatRelocation(bool hit, float distance, float now)
     {
-        if ((!Relocating && !_postRetreat) || now < _nextRepeatRelocate || _repeatRelocations >= REPEAT_RELOCATE_MAX || IsCloseRange(distance))
+        if ((!Relocating && !_postRetreat) || now < _nextRepeatRelocate || now - _retreatStarted < GlobalSettings.Fork.ShotRepeatMinRetreatTime || _repeatRelocations >= REPEAT_RELOCATE_MAX || IsCloseRange(distance))
         {
             return false;
         }
@@ -1257,6 +1259,7 @@ public class ShotReactionClass : BotComponentClassBase
             Bot.Cover.ClearShotState();
             _postRetreat = false;
             Relocating = true;
+            _retreatStarted = Time.time;
             _relocateEnd = Time.time + fork.ShotRelocateTimeMax;
             Outcome = EShotReaction.None;
             _hideUntil = 0f;
@@ -1588,7 +1591,10 @@ public class ShotReactionClass : BotComponentClassBase
         ForkSettings fork = GlobalSettings.Fork;
         BotWeaponInfoClass weaponInfo = Bot.Info.WeaponInfo;
         float reach = Mathf.Max(weaponInfo.EffectiveWeaponDistance, 1f);
-        float ratio = distance / reach;
+        // Reach matters more the farther the shooter is: up close every weapon is judged against the same reference reach, and the bot's own
+        // reach takes over linearly until the full effect distance.
+        float reachWeight = Mathf.Clamp01(distance / Mathf.Max(fork.ShotReachFullEffectDistance, 1f));
+        float ratio = Mathf.Lerp(distance / Mathf.Max(fork.ShotReferenceReach, 1f), distance / reach, reachWeight);
 
         SampleShares(ratio, fork, out float cover, out float fight);
 
@@ -1653,6 +1659,36 @@ public class ShotReactionClass : BotComponentClassBase
         else if (lookAngle >= fork.ShotBackTurnedAngle)
         {
             cover *= fork.ShotBackTurnedCoverBonus;
+        }
+
+        // Weapon type counts close up (reach counts far away): short guns and full auto lean to a fight, marksman and sniper rifles and semi-only
+        // weapons lean to flight. Full strength up to the weapon effect distance, gone at twice that.
+        float weaponStrength = 1f - Mathf.InverseLerp(fork.ShotWeaponEffectDistance, fork.ShotWeaponEffectDistance * 2f, distance);
+        if (weaponStrength > 0f)
+        {
+            float fightMultiplier = 1f;
+            float coverMultiplier = 1f;
+            switch (weaponInfo.EWeaponClass)
+            {
+                case EWeaponClass.smg:
+                case EWeaponClass.shotgun:
+                    fightMultiplier *= fork.ShotWeaponShortGunFightBonus;
+                    break;
+                case EWeaponClass.marksmanRifle:
+                case EWeaponClass.sniperRifle:
+                    coverMultiplier *= fork.ShotWeaponLongGunCoverBonus;
+                    break;
+            }
+            if (weaponInfo.HasFireMode(Weapon.EFireMode.fullauto))
+            {
+                fightMultiplier *= fork.ShotWeaponFullAutoFightBonus;
+            }
+            else if (weaponInfo.HasFireMode(Weapon.EFireMode.single))
+            {
+                coverMultiplier *= fork.ShotWeaponSemiOnlyCoverBonus;
+            }
+            fight *= Mathf.Lerp(1f, fightMultiplier, weaponStrength);
+            cover *= Mathf.Lerp(1f, coverMultiplier, weaponStrength);
         }
         ETagStatus health = Bot.Memory.Health.HealthStatus;
         if (health == ETagStatus.BadlyInjured || health == ETagStatus.Dying)

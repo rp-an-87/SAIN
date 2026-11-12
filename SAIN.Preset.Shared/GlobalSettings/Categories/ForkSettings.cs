@@ -1075,6 +1075,62 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(0.2f, 1f, 100f)]
     public float ShotStrongWeaponCoverMax = 0.6f;
 
+    [DataMember]
+    [Category("Shot Reaction/Weapon & reach")]
+    [Name("Reference Reach")]
+    [Description("Up close, every weapon is judged against this reach (meters) instead of its own, so a long-range weapon does not count as 'very close' at 18 m. The bot's own reach takes over linearly up to the full effect distance.")]
+    [MinMax(20f, 300f, 1f)]
+    public float ShotReferenceReach = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction/Weapon & reach")]
+    [Name("Reach Full Effect Distance")]
+    [Description("From this distance (meters) on, the bot's own weapon reach decides the roll completely. Closer, the reference reach is blended in.")]
+    [MinMax(10f, 300f, 1f)]
+    public float ShotReachFullEffectDistance = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction/Weapon & reach")]
+    [Name("Weapon Type Effect Distance")]
+    [Description("The weapon type factors below apply fully up to this distance (meters) and fade out to nothing at twice this distance.")]
+    [MinMax(5f, 150f, 1f)]
+    public float ShotWeaponEffectDistance = 30f;
+
+    [DataMember]
+    [Category("Shot Reaction/Weapon & reach")]
+    [Name("SMG / Shotgun Fight Bonus")]
+    [Description("Fight weight multiplier for submachine guns and shotguns up close. 1 = no effect.")]
+    [MinMax(1f, 3f, 100f)]
+    public float ShotWeaponShortGunFightBonus = 1.3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Weapon & reach")]
+    [Name("Marksman / Sniper Cover Bonus")]
+    [Description("Cover weight multiplier for marksman and sniper rifles up close (they are poor at close range). 1 = no effect.")]
+    [MinMax(1f, 3f, 100f)]
+    public float ShotWeaponLongGunCoverBonus = 1.4f;
+
+    [DataMember]
+    [Category("Shot Reaction/Weapon & reach")]
+    [Name("Full Auto Fight Bonus")]
+    [Description("Fight weight multiplier for a weapon that can fire full auto, up close. 1 = no effect.")]
+    [MinMax(1f, 3f, 100f)]
+    public float ShotWeaponFullAutoFightBonus = 1.15f;
+
+    [DataMember]
+    [Category("Shot Reaction/Weapon & reach")]
+    [Name("Semi Auto Only Cover Bonus")]
+    [Description("Cover weight multiplier for a weapon that cannot fire full auto, up close. 1 = no effect.")]
+    [MinMax(1f, 3f, 100f)]
+    public float ShotWeaponSemiOnlyCoverBonus = 1.15f;
+
+    [DataMember]
+    [Category("Shot Reaction/Shot again")]
+    [Name("Another Retreat: Min Time Since Retreat Start")]
+    [Description("A repeat retreat can only start this many seconds after the previous retreat began, so a second hit right at the start does not restart it.")]
+    [MinMax(0f, 20f, 10f)]
+    public float ShotRepeatMinRetreatTime = 3f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);
