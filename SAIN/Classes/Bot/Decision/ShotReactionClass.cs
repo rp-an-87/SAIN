@@ -19,14 +19,14 @@ public enum EShotReaction
     None,
     Cover,
     Fight,
-    Suppress,
+    FightOn,
     Hunt,
 }
 
 /// <summary>
 /// Fork: what a bot does when it is shot at by an enemy it cannot see.
 /// A hit or a close bullet gives the bot a vague area (never the exact position) and one weighted roll:
-/// Cover (hide, then forget), Fight (no hiding: normal combat at once, against the vague area), Suppress (hide and fire bursts),
+/// Cover (hide, then forget), Fight (no hiding: normal combat at once, against the vague area), Hunt (hide, assess, then look for the shooter); after a hide Fight On keeps the bot in cover firing at the area,
 /// Hunt (hide, assess, then normal search and advance). The roll is event driven: nothing here runs per tick.
 /// </summary>
 public class ShotReactionClass : BotComponentClassBase
@@ -36,8 +36,6 @@ public class ShotReactionClass : BotComponentClassBase
     private const float SPRINT_FIGHT_PENALTY = 0.5f;
     private const float INJURED_COVER_BONUS = 1.5f;
     private const float INJURED_FIGHT_PENALTY = 0.5f;
-    private const float WEAPON_SHORT_RANGE_SUPPRESS = 0.3f;
-    private const float WEAPON_MACHINEGUN_SUPPRESS = 1.5f;
     private const float FIGHT_REACH_LIMIT = 1.25f;
 
     // Distance smoothing: the zone tables are anchors on a curve over distance / reach, not steps.
@@ -354,7 +352,7 @@ public class ShotReactionClass : BotComponentClassBase
             string state = Relocating ? "Retreat" : Outcome.ToString();
             if (Outcome != EShotReaction.None)
             {
-                if ((Outcome == EShotReaction.Cover || Outcome == EShotReaction.Suppress) && !_followDone && now < _hideUntil)
+                if (Outcome == EShotReaction.Cover && !_followDone && now < _hideUntil)
                 {
                     // Shot at again while hiding: it keeps hiding a bit longer.
                     _hideUntil = Mathf.Max(_hideUntil, now + HIDE_EXTEND);
@@ -406,7 +404,7 @@ public class ShotReactionClass : BotComponentClassBase
             _inCoverSince = now;
         }
         bool hiddenLongEnough = now >= _hideUntil || (_inCoverSince >= 0f && now - _inCoverSince >= RELOCATE_COVER_HOLD);
-        if (!_followDone && !seesShooter && hiddenLongEnough && (Outcome == EShotReaction.Cover || Outcome == EShotReaction.Suppress))
+        if (!_followDone && !seesShooter && hiddenLongEnough && Outcome == EShotReaction.Cover)
         {
             // The hide is over and the bot has not seen the shooter: it fights on from cover, goes looking, or retreats. It never just resumes.
             _followDone = true;
@@ -444,7 +442,7 @@ public class ShotReactionClass : BotComponentClassBase
         {
             return TryInvestigate(enemy, now, out decision);
         }
-        if (Outcome == EShotReaction.Suppress && _followDone)
+        if (Outcome == EShotReaction.FightOn && _followDone)
         {
             // Fight On: stay in cover; SAIN's cover action fires suppressive bursts at the vague area and fights normally when it sees the shooter.
             decision = ECombatDecision.SeekCover;
@@ -671,10 +669,6 @@ public class ShotReactionClass : BotComponentClassBase
                 investigate /= fork.ShotTimidPull;
                 break;
         }
-        if (Outcome == EShotReaction.Suppress)
-        {
-            retreat *= 0.3f;
-        }
         ETagStatus health = Bot.Memory.Health.HealthStatus;
         if (health == ETagStatus.BadlyInjured || health == ETagStatus.Dying)
         {
@@ -710,7 +704,7 @@ public class ShotReactionClass : BotComponentClassBase
     private void StartFightOn(float now)
     {
         ForkSettings fork = GlobalSettings.Fork;
-        Outcome = EShotReaction.Suppress;
+        Outcome = EShotReaction.FightOn;
         _hideUntil = now;
         _expireTime = now + fork.ShotFightOnDuration;
     }
@@ -1519,7 +1513,7 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     private bool TryFollowUpOnExpiry(float now)
     {
-        if (_followDone || _enemy == null || (Outcome != EShotReaction.Cover && Outcome != EShotReaction.Suppress))
+        if (_followDone || _enemy == null || Outcome != EShotReaction.Cover)
         {
             return false;
         }
@@ -1571,32 +1565,10 @@ public class ShotReactionClass : BotComponentClassBase
         float reach = Mathf.Max(weaponInfo.EffectiveWeaponDistance, 1f);
         float ratio = distance / reach;
 
-        SampleShares(ratio, fork, out float cover, out float fight, out float suppress, out float hunt);
+        SampleShares(ratio, fork, out float cover, out float fight, out float hunt);
 
-        // Weapon: sights pull Fight, class pulls Suppress, reach fades both out.
-        // (The sights are already in the reach, which the ratio is relative to: no second multiplier here.)
+        // Fight fades out beyond the weapon's reach (the sights are already in the reach, which the ratio is relative to).
         fight *= Mathf.Clamp01(Mathf.InverseLerp(FIGHT_FADE_END, FIGHT_FADE_START, ratio));
-        float suppressFade = 1f;
-        if (fork.SuppressLimitEnabled && Bot.Info.Profile.RangeEnabled)
-        {
-            float suppressStart = fork.SuppressReachFraction;
-            suppressFade = Mathf.Clamp01(Mathf.InverseLerp(suppressStart * SUPPRESS_FADE_STRETCH, suppressStart, ratio));
-        }
-        suppress *= suppressFade;
-        if (suppress > 0f)
-        {
-            switch (weaponInfo.EWeaponClass)
-            {
-                case EWeaponClass.machinegun:
-                    suppress *= WEAPON_MACHINEGUN_SUPPRESS;
-                    break;
-                case EWeaponClass.smg:
-                case EWeaponClass.pistol:
-                case EWeaponClass.shotgun:
-                    suppress *= WEAPON_SHORT_RANGE_SUPPRESS;
-                    break;
-            }
-        }
 
         // Shooter concealment: harder to place, so less reason to go after it.
         float concealment = 1f;
@@ -1613,7 +1585,6 @@ public class ShotReactionClass : BotComponentClassBase
             concealment = 1f;
         }
         fight *= concealment;
-        suppress *= concealment;
         hunt *= concealment;
 
         // A hit says more about where the shooter is than a bullet passing by.
@@ -1630,7 +1601,6 @@ public class ShotReactionClass : BotComponentClassBase
             case EPersonality.GigaChad:
             case EPersonality.Chad:
                 fight *= fork.ShotAggressivePull;
-                suppress *= fork.ShotAggressivePull;
                 hunt *= fork.ShotAggressivePull;
                 cover /= fork.ShotAggressivePull;
                 break;
@@ -1639,7 +1609,6 @@ public class ShotReactionClass : BotComponentClassBase
             case EPersonality.Coward:
                 cover *= fork.ShotTimidPull;
                 fight /= fork.ShotTimidPull;
-                suppress /= fork.ShotTimidPull;
                 hunt /= fork.ShotTimidPull;
                 break;
         }
@@ -1657,16 +1626,15 @@ public class ShotReactionClass : BotComponentClassBase
             fight *= INJURED_FIGHT_PENALTY;
         }
 
-        NormalizeWithLimits(ref cover, ref fight, ref suppress, ref hunt, fork, ratio);
+        NormalizeWithLimits(ref cover, ref fight, ref hunt, fork, ratio);
 
         bool pointBlank = distance <= POINT_BLANK_DISTANCE;
         if (pointBlank && fight < POINT_BLANK_FIGHT_SHARE)
         {
             // Applied after the limits on purpose: a short-reach weapon would otherwise cap Fight far below this.
-            float others = cover + suppress + hunt;
+            float others = cover + hunt;
             float scale = others > 0f ? (1f - POINT_BLANK_FIGHT_SHARE) / others : 0f;
             cover *= scale;
-            suppress *= scale;
             hunt *= scale;
             fight = POINT_BLANK_FIGHT_SHARE;
         }
@@ -1680,10 +1648,6 @@ public class ShotReactionClass : BotComponentClassBase
         else if (pick < cover + fight)
         {
             outcome = EShotReaction.Fight;
-        }
-        else if (pick < cover + fight + suppress)
-        {
-            outcome = EShotReaction.Suppress;
         }
         else
         {
@@ -1701,7 +1665,7 @@ public class ShotReactionClass : BotComponentClassBase
         {
             Logger.LogInfoAlways(
                 $"[ShotReaction] t={Time.time:0.0} {Bot.name} ({Bot.Info.Personality}) vs {enemy.EnemyName}: dist {distance:0} m, reach {reach:0} m, hit {hit}, visible {enemy.IsVisible} ({enemy.VisibleDuration:0.0} s), look angle {Vector3.Angle(Bot.LookDirection, enemy.EnemyPosition - Bot.Position):0} deg, moving {Bot.Mover.Moving}, running {Bot.Mover.Running}, "
-                    + $"shares cover {cover:0.00} fight {fight:0.00} suppress {suppress:0.00} hunt {hunt:0.00}{(pointBlank ? " (point blank)" : "")} -> {outcome}"
+                    + $"shares cover {cover:0.00} fight {fight:0.00} hunt {hunt:0.00}{(pointBlank ? " (point blank)" : "")} -> {outcome}"
             );
         }
     }
@@ -1710,7 +1674,7 @@ public class ShotReactionClass : BotComponentClassBase
     /// The zone tables are anchors on a curve over distance / reach: Short holds up to half of the short zone, Mid sits in the middle
     /// of the mid zone, Long holds from LONG_ANCHOR_RATIO. In between the shares are interpolated, so there are no steps at zone edges.
     /// </summary>
-    private static void SampleShares(float ratio, ForkSettings fork, out float cover, out float fight, out float suppress, out float hunt)
+    private static void SampleShares(float ratio, ForkSettings fork, out float cover, out float fight, out float hunt)
     {
         float shortAnchor = fork.ShotZoneShort * 0.5f;
         float midAnchor = Mathf.Max((fork.ShotZoneShort + fork.ShotZoneMid) * 0.5f, shortAnchor + 0.01f);
@@ -1720,7 +1684,6 @@ public class ShotReactionClass : BotComponentClassBase
         {
             cover = fork.ShortCover;
             fight = fork.ShortFight;
-            suppress = fork.ShortSuppress;
             hunt = fork.ShortHunt;
         }
         else if (ratio <= midAnchor)
@@ -1728,7 +1691,6 @@ public class ShotReactionClass : BotComponentClassBase
             float t = (ratio - shortAnchor) / (midAnchor - shortAnchor);
             cover = Mathf.Lerp(fork.ShortCover, fork.MidCover, t);
             fight = Mathf.Lerp(fork.ShortFight, fork.MidFight, t);
-            suppress = Mathf.Lerp(fork.ShortSuppress, fork.MidSuppress, t);
             hunt = Mathf.Lerp(fork.ShortHunt, fork.MidHunt, t);
         }
         else if (ratio <= longAnchor)
@@ -1736,14 +1698,12 @@ public class ShotReactionClass : BotComponentClassBase
             float t = (ratio - midAnchor) / (longAnchor - midAnchor);
             cover = Mathf.Lerp(fork.MidCover, fork.LongCover, t);
             fight = Mathf.Lerp(fork.MidFight, fork.LongFight, t);
-            suppress = Mathf.Lerp(fork.MidSuppress, fork.LongSuppress, t);
             hunt = Mathf.Lerp(fork.MidHunt, fork.LongHunt, t);
         }
         else
         {
             cover = fork.LongCover;
             fight = fork.LongFight;
-            suppress = fork.LongSuppress;
             hunt = fork.LongHunt;
         }
     }
@@ -1753,21 +1713,20 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     public float SuppressReachStretch(Enemy enemy)
     {
-        return IsManaging(enemy) && Outcome == EShotReaction.Suppress ? SUPPRESS_FADE_STRETCH : 1f;
+        return IsManaging(enemy) && Outcome == EShotReaction.FightOn ? SUPPRESS_FADE_STRETCH : 1f;
     }
 
-    private static void NormalizeWithLimits(ref float cover, ref float fight, ref float suppress, ref float hunt, ForkSettings fork, float ratio)
+    private static void NormalizeWithLimits(ref float cover, ref float fight, ref float hunt, ForkSettings fork, float ratio)
     {
-        float total = cover + fight + suppress + hunt;
+        float total = cover + fight + hunt;
         if (total <= 0f)
         {
             cover = 1f;
-            fight = suppress = hunt = 0f;
+            fight = hunt = 0f;
             return;
         }
         cover /= total;
         fight /= total;
-        suppress /= total;
         hunt /= total;
 
         // Up close the limits relax: Fight may dominate and Cover may drop low. They fade back to the configured values by the Mid anchor.
@@ -1786,12 +1745,11 @@ public class ShotReactionClass : BotComponentClassBase
         {
             float excess = cover - STRONG_WEAPON_COVER_MAX;
             cover = STRONG_WEAPON_COVER_MAX;
-            float rest = fight + suppress + hunt;
+            float rest = fight + hunt;
             if (rest > 0f)
             {
                 float factor = 1f + (excess / rest);
                 fight *= factor;
-                suppress *= factor;
                 hunt *= factor;
             }
             else
@@ -1809,13 +1767,12 @@ public class ShotReactionClass : BotComponentClassBase
         float minCover = Mathf.Clamp01(Mathf.Lerp(fork.ShotCoverMinShare, Mathf.Min(fork.ShotCoverMinShare, CLOSE_COVER_MIN_SHARE), closeness));
         if (cover < minCover)
         {
-            float others = fight + suppress + hunt;
+            float others = fight + hunt;
             float need = minCover - cover;
             float scale = others > 0f ? Mathf.Max(0f, (others - need) / others) : 0f;
             fight *= scale;
-            suppress *= scale;
             hunt *= scale;
-            cover = 1f - fight - suppress - hunt;
+            cover = 1f - fight - hunt;
         }
     }
 
@@ -1848,10 +1805,6 @@ public class ShotReactionClass : BotComponentClassBase
             // Suppress and Hunt take the nearest cover and never flee (they fight or advance, with no cover points SAIN's own advance runs);
             // Cover prefers cover away from the shot.
             Bot.Cover.StartShotCover(shotArea, outcome == EShotReaction.Cover);
-        }
-        if (outcome == EShotReaction.Suppress)
-        {
-            coverTime = fork.ShotCoverTimeMin * Random.Range(0.8f, 1.2f);
         }
 
         switch (outcome)

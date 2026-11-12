@@ -449,13 +449,6 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
-    [Name("Short: Suppress Weight")]
-    [Description("Relative weight of taking cover and firing suppressing bursts in the short zone.")]
-    [MinMax(0f, 100f, 1f)]
-    public float ShortSuppress = 5f;
-
-    [DataMember]
-    [Category("Shot Reaction/Zones & weights")]
     [Name("Short: Hunt Weight")]
     [Description("Relative weight of taking cover, assessing, then hunting the shooter in the short zone.")]
     [MinMax(0f, 100f, 1f)]
@@ -477,13 +470,6 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
-    [Name("Mid: Suppress Weight")]
-    [Description("Relative weight of cover plus suppressing bursts in the mid zone.")]
-    [MinMax(0f, 100f, 1f)]
-    public float MidSuppress = 12f;
-
-    [DataMember]
-    [Category("Shot Reaction/Zones & weights")]
     [Name("Mid: Hunt Weight")]
     [Description("Relative weight of cover, assess, hunt in the mid zone.")]
     [MinMax(0f, 100f, 1f)]
@@ -502,13 +488,6 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("Relative weight of fighting back in the long zone. Only bots whose weapon reaches the shooter can pick it.")]
     [MinMax(0f, 100f, 1f)]
     public float LongFight = 2f;
-
-    [DataMember]
-    [Category("Shot Reaction/Zones & weights")]
-    [Name("Long: Suppress Weight")]
-    [Description("Relative weight of cover plus suppressing bursts in the long zone. Still limited by the suppress distance limit.")]
-    [MinMax(0f, 100f, 1f)]
-    public float LongSuppress = 3f;
 
     [DataMember]
     [Category("Shot Reaction/Zones & weights")]
