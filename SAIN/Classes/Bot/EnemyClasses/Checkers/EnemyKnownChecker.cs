@@ -51,12 +51,6 @@ public class EnemyKnownChecker(EnemyData enemyData)
             return false;
         }
 
-        // Fork: a shooter the bot never saw is forgotten when its shot reaction is over.
-        if (Enemy.Bot.ShotReaction.ShallForget(Enemy))
-        {
-            return false;
-        }
-
         float timeSinceUpdate = currentTime - places.TimeLastKnownUpdated;
 
         //if (Enemy.EnemyKnown && Enemy.EnemyPlayer.IsYourPlayer)

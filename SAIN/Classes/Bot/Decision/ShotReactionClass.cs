@@ -267,7 +267,6 @@ public class ShotReactionClass : BotComponentClassBase
         if (Outcome != EShotReaction.None && enemy == _enemy && (now < _nextRollTime || hiding))
         {
             // Same fight, too soon for a new roll: the shot only keeps the reaction (and the memory of the shooter) going.
-            _forgetAt = Mathf.Max(_forgetAt, now + GlobalSettings.Fork.ShotForgetDelay);
             _expireTime = Mathf.Max(_expireTime, now + 0.5f);
             LogEvent($"{(hit ? "hit" : "bullet")} at {distance:0} m while {Outcome} is active ({(hiding ? "hiding" : "reroll cooldown")}), reaction extended, no new roll");
             return;
@@ -401,7 +400,6 @@ public class ShotReactionClass : BotComponentClassBase
         Outcome = EShotReaction.Suppress;
         _hideUntil = now;
         _expireTime = now + fork.ShotFightOnDuration;
-        _forgetAt = _expireTime;
     }
 
     /// <summary>Go looking for the shooter: the normal search toward the vague area, until the shooter is seen or the time runs out.</summary>
@@ -411,7 +409,6 @@ public class ShotReactionClass : BotComponentClassBase
         Outcome = EShotReaction.Hunt;
         _hideUntil = now;
         _expireTime = now + fork.ShotHuntTimeMax;
-        _forgetAt = _expireTime;
     }
 
     /// <summary>
@@ -498,7 +495,6 @@ public class ShotReactionClass : BotComponentClassBase
         StartTrace(now);
         Relocating = false;
         // Done: the shooter is forgotten (unless new information arrives) and the bot resumes its task from here.
-        _forgetAt = now;
     }
 
     /// <summary>
@@ -511,23 +507,6 @@ public class ShotReactionClass : BotComponentClassBase
             return true;
         }
         return Outcome != EShotReaction.Cover;
-    }
-
-    /// <summary>
-    /// True when the bot should stop knowing about this shooter: its reaction is over, it was not shot at again, and it never saw it.
-    /// </summary>
-    public bool ShallForget(Enemy enemy)
-    {
-        if (_forgetEnemy == null || enemy != _forgetEnemy || !Enabled || Relocating)
-        {
-            return false;
-        }
-        if (Time.time < _forgetAt || enemy.IsVisible)
-        {
-            return false;
-        }
-        // Information that arrived after the forget time (a new shot, a sighting, a squad report) keeps the bot aware.
-        return enemy.KnownPlaces.TimeLastKnownUpdated < _forgetAt;
     }
 
     /// <summary>
@@ -871,19 +850,16 @@ public class ShotReactionClass : BotComponentClassBase
                 // Fight back: no hiding, normal combat starts at once.
                 _hideUntil = now;
                 _expireTime = now + fork.ShotFightDuration;
-                _forgetAt = _expireTime;
                 break;
 
             case EShotReaction.Hunt:
                 _hideUntil = now + Random.Range(Mathf.Min(fork.ShotAssessTimeMin, fork.ShotAssessTimeMax), Mathf.Max(fork.ShotAssessTimeMin, fork.ShotAssessTimeMax));
                 _expireTime = now + Mathf.Max(fork.ShotHuntTimeMax, fork.ShotAssessTimeMax);
-                _forgetAt = _expireTime;
                 break;
 
             default: // Cover, Suppress
                 _hideUntil = now + coverTime;
                 _expireTime = _hideUntil + 0.5f;
-                _forgetAt = _hideUntil + fork.ShotForgetDelay;
                 break;
         }
     }
@@ -892,7 +868,6 @@ public class ShotReactionClass : BotComponentClassBase
     private Enemy _forgetEnemy;
     private float _hideUntil;
     private float _expireTime;
-    private float _forgetAt;
     private float _nextRollTime;
     private float _nextSkipLogTime;
     private bool _steerLogged;
