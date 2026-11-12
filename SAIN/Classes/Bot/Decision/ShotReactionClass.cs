@@ -425,9 +425,13 @@ public class ShotReactionClass : BotComponentClassBase
         }
         if (now >= _expireTime || seesShooter)
         {
-            // Over, or the bot actually sees the shooter now: normal combat.
-            End(seesShooter ? "the bot sees the shooter" : "time is up");
-            return false;
+            // A fight that ran out without the bot ever seeing the shooter goes on as an investigation; seeing the shooter is normal combat.
+            if (seesShooter || !ChainInvestigation(now))
+            {
+                // Over, or the bot actually sees the shooter now: normal combat.
+                End(seesShooter ? "the bot sees the shooter" : "time is up");
+                return false;
+            }
         }
         if (_postRetreat)
         {
@@ -762,6 +766,23 @@ public class ShotReactionClass : BotComponentClassBase
         _expireTime = _hideUntil + fork.ShotHuntTimeMax;
         Bot.Cover.StartShotCover(_vaguePosition, false);
         LogEvent($"retreat over: holding cover until it feels safe (safety >= {_safetyThreshold:0.00}, at most {hold:0} s), then investigating cover to cover");
+    }
+
+    /// <summary>
+    /// A Fight or Fight On ran out and the bot never saw the shooter: it does not fall back to plain SAIN (a stroll, or forgetting) but goes on
+    /// as an investigation (cover to cover toward the vague area, ambush, then the sprinting search). Every path of the reaction ends in one.
+    /// </summary>
+    private bool ChainInvestigation(float now)
+    {
+        if ((Outcome != EShotReaction.Fight && Outcome != EShotReaction.FightOn) || _enemy == null)
+        {
+            return false;
+        }
+        LogEvent($"{Outcome} over, still no sight of the shooter: investigating cover to cover");
+        _followDone = true;
+        _noCoverDone = true;
+        StartInvestigate(now);
+        return true;
     }
 
     /// <summary>Go looking for the shooter: the normal search toward the vague area, until the shooter is seen or the time runs out.</summary>
@@ -1513,6 +1534,10 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     private bool TryFollowUpOnExpiry(float now)
     {
+        if ((Outcome == EShotReaction.Fight || Outcome == EShotReaction.FightOn) && _enemy != null && !(SeesShooter(_enemy) && _enemy.CanShoot))
+        {
+            return ChainInvestigation(now);
+        }
         if (_followDone || _enemy == null || Outcome != EShotReaction.Cover)
         {
             return false;
