@@ -176,6 +176,12 @@ public class ShotReactionClass : BotComponentClassBase
         return Outcome != EShotReaction.None && enemy != null && enemy == _enemy;
     }
 
+    /// <summary>The reaction owns this bot's decision (hide, hold, investigate, retreat, fight): squad decisions such as following the leader wait until it is over.</summary>
+    public bool OverridesSquad(Enemy enemy)
+    {
+        return Enabled && enemy != null && enemy == _enemy && (Relocating || Outcome != EShotReaction.None);
+    }
+
     /// <summary>
     /// The reaction applies to shots from this enemy: switched on, the shooter is you (if configured), and the bot cannot see it.
     /// </summary>
@@ -330,6 +336,50 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>
+    /// A bot was hit by an unseen shooter: nearby squadmates that know the shooter and are not reacting already get the vague area and roll as for a close bullet.
+    /// </summary>
+    private void AlertSquad(Enemy enemy, float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (!fork.ShotSquadAlertEnabled || _vaguePositionTime <= 0f || Bot.Squad?.Members == null)
+        {
+            return;
+        }
+        float rangeSqr = fork.ShotSquadRoleRange * fork.ShotSquadRoleRange;
+        foreach (var member in Bot.Squad.Members.Values)
+        {
+            if (member == null || member == Bot || member.BotOwner == null || member.BotOwner.IsDead || member.ShotReaction == null)
+            {
+                continue;
+            }
+            if ((member.Position - Bot.Position).sqrMagnitude > rangeSqr)
+            {
+                continue;
+            }
+            Enemy mateEnemy = member.EnemyController.GetEnemy(enemy.EnemyProfileId, true);
+            if (mateEnemy != null)
+            {
+                member.ShotReaction.ReceiveSquadAlert(mateEnemy, _vaguePosition, Bot.name);
+            }
+        }
+    }
+
+    /// <summary>A squadmate was hit by this shooter: this bot learns the (already vague) area and rolls its own reaction as for a close bullet.</summary>
+    public void ReceiveSquadAlert(Enemy enemy, Vector3 area, string fromName)
+    {
+        float now = Time.time;
+        if (!AppliesTo(enemy) || Outcome != EShotReaction.None || Relocating || now < _nextRollTime)
+        {
+            return;
+        }
+        // A little extra error, so a mate never knows more than the bot that was hit.
+        Vector2 offset = Random.insideUnitCircle * 10f;
+        RememberVaguePosition(area + new Vector3(offset.x, 0f, offset.y));
+        LogEvent($"squad alert from {fromName}: rolling as for a close bullet");
+        Roll(enemy, enemy.RealDistance, false, now);
+    }
+
+    /// <summary>
     /// A shot was fired at the bot (it hit, or a bullet passed close) by an enemy it cannot see.
     /// </summary>
     public void OnShot(Enemy enemy, float distance, bool hit)
@@ -385,6 +435,10 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         Roll(enemy, distance, hit, now);
+        if (hit)
+        {
+            AlertSquad(enemy, now);
+        }
     }
 
     /// <summary>
@@ -407,6 +461,25 @@ public class ShotReactionClass : BotComponentClassBase
             return false;
         }
         float now = Time.time;
+        if (_nadeActive)
+        {
+            bool throwing = Bot.BotOwner.WeaponManager?.Grenades?.ThrowindNow == true;
+            if (now < _nadeUntil && (throwing || now < _nadeStart + 0.5f) && !(SeesShooter(enemy) && enemy.CanShoot))
+            {
+                decision = ECombatDecision.ThrowGrenade;
+                return true;
+            }
+            _nadeActive = false;
+            if (_pendingFollow.HasValue)
+            {
+                EFollowUp pending = _pendingFollow.Value;
+                _pendingFollow = null;
+                if (ApplyFollowUp(pending, now, out decision))
+                {
+                    return true;
+                }
+            }
+        }
         bool seesShooter = SeesShooter(enemy) && enemy.CanShoot;
         if (_inCoverSince < 0f && Bot.Cover.CoverInUse != null)
         {
@@ -418,18 +491,16 @@ public class ShotReactionClass : BotComponentClassBase
             // The hide is over and the bot has not seen the shooter: it fights on from cover, goes looking, or retreats. It never just resumes.
             _followDone = true;
             EFollowUp follow = ChooseFollowUp(enemy);
-            if (follow == EFollowUp.Retreat && TryStartRelocating())
+            // Cover first, then a grenade at the vague area, then the follow-up (retreat, fight on, investigate).
+            if (TryStartNade(enemy, now, NadeChance(follow), "after the hide, before " + follow))
             {
-                decision = ECombatDecision.Relocate;
+                _pendingFollow = follow;
+                decision = ECombatDecision.ThrowGrenade;
                 return true;
             }
-            if (follow == EFollowUp.Investigate)
+            if (ApplyFollowUp(follow, now, out decision))
             {
-                StartInvestigate(now);
-            }
-            else
-            {
-                StartFightOn(now);
+                return true;
             }
         }
         if (now >= _expireTime || seesShooter)
@@ -549,6 +620,7 @@ public class ShotReactionClass : BotComponentClassBase
             _hopProgressTime = now;
             _hopHold = HopHoldTime();
             _advanceRunUntil = 0f;
+            _advanceRolled = false;
             LogEvent("advance: next cover closer to the shot area");
             decision = ECombatDecision.SeekCover;
             return true;
@@ -596,6 +668,11 @@ public class ShotReactionClass : BotComponentClassBase
                 return true;
             }
             LogEvent($"advance: no closer cover, {(Bot.Position - area).magnitude:0} m from the shot area, holding (chance {advanceChance:0.00})");
+        }
+        if (inCover && TryStartNade(enemy, now, GlobalSettings.Fork.ShotGrenadeChanceAmbush, "ambush"))
+        {
+            decision = ECombatDecision.ThrowGrenade;
+            return true;
         }
         if (inCover)
         {
@@ -757,6 +834,46 @@ public class ShotReactionClass : BotComponentClassBase
             fightOn *= 0.3f;
         }
 
+        if (fork.ShotSquadRolesEnabled && fork.ShotSquadRoleStrength > 0f && Bot.Squad?.Members != null)
+        {
+            // A mate that fights makes this bot flank (investigate), a mate that hunts makes it cover fire (fight on). Capped at +100%.
+            int fighting = 0;
+            int hunting = 0;
+            float rangeSqr = fork.ShotSquadRoleRange * fork.ShotSquadRoleRange;
+            foreach (var member in Bot.Squad.Members.Values)
+            {
+                if (member == null || member == Bot || member.BotOwner == null || member.BotOwner.IsDead || member.ShotReaction == null)
+                {
+                    continue;
+                }
+                if ((member.Position - Bot.Position).sqrMagnitude > rangeSqr)
+                {
+                    continue;
+                }
+                EShotReaction mateState = member.ShotReaction.Outcome;
+                if (mateState == EShotReaction.Fight || mateState == EShotReaction.FightOn)
+                {
+                    fighting++;
+                }
+                else if (mateState == EShotReaction.Hunt)
+                {
+                    hunting++;
+                }
+            }
+            if (fighting > 0)
+            {
+                investigate *= 1f + Mathf.Min(1f, fork.ShotSquadRoleStrength * fighting);
+            }
+            if (hunting > 0)
+            {
+                fightOn *= 1f + Mathf.Min(1f, fork.ShotSquadRoleStrength * hunting);
+            }
+            if (fighting > 0 || hunting > 0)
+            {
+                LogEvent($"squad roles: {fighting} mate(s) fighting, {hunting} hunting");
+            }
+        }
+
         float total = retreat + fightOn + investigate;
         EFollowUp choice = EFollowUp.FightOn;
         if (total > 0f)
@@ -773,6 +890,90 @@ public class ShotReactionClass : BotComponentClassBase
         }
         LogEvent($"after hiding: {choice} (weights retreat {retreat:0.00}, fight on {fightOn:0.00}, investigate {investigate:0.00})");
         return choice;
+    }
+
+    private bool ApplyFollowUp(EFollowUp follow, float now, out ECombatDecision decision)
+    {
+        decision = ECombatDecision.None;
+        if (follow == EFollowUp.Retreat && TryStartRelocating())
+        {
+            decision = ECombatDecision.Relocate;
+            return true;
+        }
+        if (follow == EFollowUp.Investigate)
+        {
+            StartInvestigate(now);
+        }
+        else
+        {
+            StartFightOn(now);
+        }
+        return false;
+    }
+
+    private float NadeChance(EFollowUp follow)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        switch (follow)
+        {
+            case EFollowUp.Retreat:
+                return fork.ShotGrenadeChanceRetreat;
+            case EFollowUp.Investigate:
+                return fork.ShotGrenadeChanceInvestigate;
+            default:
+                return fork.ShotGrenadeChanceFightOn;
+        }
+    }
+
+    /// <summary>
+    /// A grenade at the vague shot area, thrown from cover (SAIN's own throw logic decides the target and the safety checks). True = the throw has started;
+    /// the caller returns the ThrowGrenade decision and the continuation runs from TryGetDecision.
+    /// </summary>
+    private bool TryStartNade(Enemy enemy, float now, float chance, string why)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (!fork.ShotGrenadeEnabled || chance <= 0f || now < _nextNadeTime || _vaguePositionTime <= 0f)
+        {
+            return false;
+        }
+        var grenades = Bot.BotOwner.WeaponManager?.Grenades;
+        if (grenades == null || !grenades.HaveGrenade)
+        {
+            return false;
+        }
+        float areaDistance = (Bot.Position - _vaguePosition).magnitude;
+        if (areaDistance < fork.ShotGrenadeMinDistance || areaDistance > fork.ShotGrenadeMaxDistance)
+        {
+            return false;
+        }
+        switch (Bot.Info.Personality)
+        {
+            case EPersonality.Wreckless:
+            case EPersonality.GigaChad:
+            case EPersonality.Chad:
+                chance = Mathf.Min(1f, chance * fork.ShotAggressivePull);
+                break;
+            case EPersonality.Rat:
+            case EPersonality.Timmy:
+            case EPersonality.Coward:
+                chance /= fork.ShotTimidPull;
+                break;
+        }
+        if (Random.value > chance)
+        {
+            return false;
+        }
+        if (!Bot.Grenade.GrenadeThrowDecider.GetDecision(enemy, out string reason))
+        {
+            LogEvent($"grenade: not thrown ({why}): {reason}");
+            return false;
+        }
+        _nextNadeTime = now + fork.ShotGrenadeCooldown;
+        _nadeActive = true;
+        _nadeStart = now;
+        _nadeUntil = now + 3f;
+        LogEvent($"grenade: throwing at the vague area, {areaDistance:0} m ({why})");
+        return true;
     }
 
     /// <summary>Stay in cover and fight back: normal combat against the vague area (suppressive fire allowed), or against the shooter if it is seen.</summary>
@@ -1272,6 +1473,37 @@ public class ShotReactionClass : BotComponentClassBase
         return false;
     }
 
+    /// <summary>
+    /// A retreat point near a squadmate scores higher: full bonus next to a living mate, nothing at the squad range.
+    /// </summary>
+    private float SquadBonus(Vector3 point)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (fork.ShotRetreatSquadWeight <= 0f || Bot.Squad?.Members == null)
+        {
+            return 0f;
+        }
+        float nearestSqr = float.MaxValue;
+        foreach (var member in Bot.Squad.Members.Values)
+        {
+            if (member == null || member == Bot || member.BotOwner == null || member.BotOwner.IsDead)
+            {
+                continue;
+            }
+            float sqr = (member.Position - point).sqrMagnitude;
+            if (sqr < nearestSqr)
+            {
+                nearestSqr = sqr;
+            }
+        }
+        if (nearestSqr == float.MaxValue)
+        {
+            return 0f;
+        }
+        float range = Mathf.Max(fork.ShotRetreatSquadRange, 1f);
+        return fork.ShotRetreatSquadWeight * (1f - Mathf.Clamp01(Mathf.Sqrt(nearestSqr) / range));
+    }
+
     private bool TryRelocatePass(float? distanceOverride, bool requireBrokenLos)
     {
         ForkSettings fork = GlobalSettings.Fork;
@@ -1316,7 +1548,7 @@ public class ShotReactionClass : BotComponentClassBase
                 {
                     continue;
                 }
-                float score = ((2 - step) * 0.25f) + DestinationCoverQuality(sampled.Value, shotArea) + Random.Range(0f, 0.6f);
+                float score = ((2 - step) * 0.25f) + DestinationCoverQuality(sampled.Value, shotArea) + SquadBonus(sampled.Value) + Random.Range(0f, 0.6f);
                 if (found && score <= bestScore)
                 {
                     continue;
@@ -1750,6 +1982,8 @@ public class ShotReactionClass : BotComponentClassBase
         }
         StartTrace(Time.time);
         SprintWhileInvestigating = false;
+        _nadeActive = false;
+        _pendingFollow = null;
         _ambushUntil = 0f;
         _postRetreat = false;
         Bot.Cover.ClearShotState();
@@ -2007,6 +2241,8 @@ public class ShotReactionClass : BotComponentClassBase
         _ambushUntil = 0f;
         _advanceRunUntil = 0f;
         _advanceRolled = false;
+        _nadeActive = false;
+        _pendingFollow = null;
         SprintWhileInvestigating = false;
         _nextRollTime = now + fork.ShotRerollInterval;
         _steerLogged = false;
@@ -2062,6 +2298,11 @@ public class ShotReactionClass : BotComponentClassBase
     private float _lastShotDistance = 9999f;
     private float _ambushUntil;
     private float _advanceRunUntil;
+    private bool _nadeActive;
+    private float _nadeStart;
+    private float _nadeUntil;
+    private float _nextNadeTime;
+    private EFollowUp? _pendingFollow;
     private bool _advanceRolled;
     private float _traceUntil;
     private float _nextTrace;

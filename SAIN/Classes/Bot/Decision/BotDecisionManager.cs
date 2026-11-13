@@ -243,7 +243,8 @@ public class BotDecisionManager(SAINDecisionClass decisionClass) : BotSubClass<S
             SetDecisions(ECombatDecision.SeekCover, ESquadDecision.None, Bot.Decision.CurrentSelfDecision, enemy);
             return;
         }
-        if (BaseClass.SquadDecisions.GetDecision(out ESquadDecision squadDecision, enemy))
+        // Fork: a bot in a shot reaction follows it, not its squad (the squad takes the bot back when the reaction is over).
+        if (!Bot.ShotReaction.OverridesSquad(enemy) && BaseClass.SquadDecisions.GetDecision(out ESquadDecision squadDecision, enemy))
         {
             SetDecisions(ECombatDecision.None, squadDecision, ESelfActionType.None, enemy);
             return;

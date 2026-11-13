@@ -861,6 +861,101 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public float ShotRouteOffsetMax = 20f;
 
     [DataMember]
+    [Category("Shot Reaction/Retreat route")]
+    [Name("Retreat Squad Weight")]
+    [Description("Score bonus for retreat points close to a squadmate (full bonus next to a mate, none at the Retreat Squad Range). A retreating bot falls back toward its group. 0 = ignore the squad.")]
+    [MinMax(0f, 3f, 100f)]
+    public float ShotRetreatSquadWeight = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Retreat route")]
+    [Name("Retreat Squad Range")]
+    [Description("Distance (meters) from the nearest squadmate beyond which a retreat point gets no squad bonus.")]
+    [MinMax(10f, 200f, 1f)]
+    public float ShotRetreatSquadRange = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction/Squad")]
+    [Name("Squad Roles Enabled")]
+    [Description("The follow-up pick after a hide takes squadmates into account: a mate that fights (Fight, Fight On) makes the others lean to investigate (flank), a mate that investigates makes the others lean to fight on from cover (cover fire). Off = every bot picks on its own.")]
+    public bool ShotSquadRolesEnabled = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Squad")]
+    [Name("Squad Role Range")]
+    [Description("Squadmates farther than this (meters) do not count for the squad roles and the squad alert.")]
+    [MinMax(10f, 150f, 1f)]
+    public float ShotSquadRoleRange = 40f;
+
+    [DataMember]
+    [Category("Shot Reaction/Squad")]
+    [Name("Squad Role Strength")]
+    [Description("Added to the lean per qualifying squadmate (0.4 = 40% more weight on the complementary pick), capped at +100%.")]
+    [MinMax(0f, 2f, 100f)]
+    public float ShotSquadRoleStrength = 0.4f;
+
+    [DataMember]
+    [Category("Shot Reaction/Squad")]
+    [Name("Squad Alert Enabled")]
+    [Description("When a bot is hit by a shooter it cannot see, squadmates within the Squad Role Range that know the shooter and are not already reacting get the vague shot area and roll their own reaction as for a close bullet. Off = only the hit bot reacts (SAIN still shares the heard position).")]
+    public bool ShotSquadAlertEnabled = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Grenades")]
+    [Name("Grenades Enabled")]
+    [Description("A bot that holds cover after a hide may throw a grenade at the vague shot area first (before it retreats, fights on from cover, investigates, or starts an ambush). Uses SAIN's own throw logic and its safety checks (not while running, friendlies close, range, needs a grenade). Off = the reaction never throws.")]
+    public bool ShotGrenadeEnabled = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Grenades")]
+    [Name("Grenade Chance: Retreat")]
+    [Description("Chance of a grenade at the end of a hide that continues as a retreat (cover, nade, run).")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotGrenadeChanceRetreat = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Grenades")]
+    [Name("Grenade Chance: Fight On")]
+    [Description("Chance of a grenade at the end of a hide that continues as Fight On (suppression from cover).")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotGrenadeChanceFightOn = 0.35f;
+
+    [DataMember]
+    [Category("Shot Reaction/Grenades")]
+    [Name("Grenade Chance: Investigate")]
+    [Description("Chance of a grenade at the end of a hide that continues as an investigation.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotGrenadeChanceInvestigate = 0.3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Grenades")]
+    [Name("Grenade Chance: Ambush")]
+    [Description("Chance of a grenade when an investigating bot has no closer cover and settles into its ambush.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotGrenadeChanceAmbush = 0.3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Grenades")]
+    [Name("Grenade Min Distance")]
+    [Description("No grenade at a vague area closer than this (meters).")]
+    [MinMax(5f, 60f, 1f)]
+    public float ShotGrenadeMinDistance = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Grenades")]
+    [Name("Grenade Max Distance")]
+    [Description("No grenade at a vague area farther than this (meters).")]
+    [MinMax(20f, 100f, 1f)]
+    public float ShotGrenadeMaxDistance = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction/Grenades")]
+    [Name("Grenade Cooldown")]
+    [Description("Seconds before the same bot may throw again from a shot reaction.")]
+    [MinMax(5f, 300f, 1f)]
+    public float ShotGrenadeCooldown = 45f;
+
+    [DataMember]
     [Category("Shot Reaction/Safety & hold")]
     [Name("Safety: Quiet Time")]
     [Description("Seconds without being shot at or seeing the shooter until the quiet part of the safety level is full.")]
