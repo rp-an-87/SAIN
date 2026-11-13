@@ -344,10 +344,19 @@ public class ShotReactionClass : BotComponentClassBase
         _lastThreatTime = now;
         _safetyCacheTime = -999f;
         _lastShotDistance = distance;
+        if (hit)
+        {
+            _hitTimes.Enqueue(now);
+        }
         // A state is "in effect" until it expires (hide, fight, fight on, investigate) or while the bot retreats. A shot then never starts a new roll.
         bool inEffect = (Outcome != EShotReaction.None && now < _expireTime) || (Relocating && enemy == _enemy);
         if (enemy == _enemy && (inEffect || now < _nextRollTime))
         {
+            // Interrupts: a shooter at point blank, or a bot that keeps getting hit while it hides or runs, fights.
+            if (TryShotInterrupt(enemy, distance, hit, now))
+            {
+                return;
+            }
             // Same fight: the shot only keeps the reaction going.
             string state = Relocating ? "Retreat" : Outcome.ToString();
             if (Outcome != EShotReaction.None)
@@ -1506,9 +1515,81 @@ public class ShotReactionClass : BotComponentClassBase
         _nextTrace = now;
     }
 
+    private readonly System.Collections.Generic.Queue<float> _hitTimes = new System.Collections.Generic.Queue<float>();
+    private float _nextProximityCheck;
+
+    /// <summary>A state a close shooter can interrupt: hiding, holding cover firing, investigating or retreating. A fight is never interrupted.</summary>
+    private bool Interruptible
+    {
+        get { return Relocating || Outcome == EShotReaction.Cover || Outcome == EShotReaction.FightOn || Outcome == EShotReaction.Hunt; }
+    }
+
+    private void InterruptToFight(Enemy enemy, float now, string why)
+    {
+        string state = Relocating ? "Retreat" : Outcome.ToString();
+        LogEvent($"{why} while {state} is in effect: interrupted, fight");
+        if (Relocating)
+        {
+            StopRelocating(now, "interrupted by a close shooter");
+        }
+        Bot.Cover.StopAdvance();
+        Bot.Cover.ClearShotState();
+        _hitTimes.Clear();
+        Apply(enemy, EShotReaction.Fight, 0f, now, GlobalSettings.Fork);
+    }
+
+    /// <summary>
+    /// Shot interrupts: a hit or bullet from the close interrupt distance, or enough hits within a short window while hiding or running, make the bot fight.
+    /// </summary>
+    private bool TryShotInterrupt(Enemy enemy, float distance, bool hit, float now)
+    {
+        if (!Interruptible)
+        {
+            return false;
+        }
+        ForkSettings fork = GlobalSettings.Fork;
+        if (fork.ShotCloseInterruptDistance > 0f && distance <= fork.ShotCloseInterruptDistance)
+        {
+            InterruptToFight(enemy, now, $"{(hit ? "hit" : "bullet")} at {distance:0} m (close interrupt)");
+            return true;
+        }
+        while (_hitTimes.Count > 0 && now - _hitTimes.Peek() > fork.ShotCorneredWindow)
+        {
+            _hitTimes.Dequeue();
+        }
+        if (fork.ShotCorneredHits > 0f && hit && distance <= fork.ShotCorneredDistance && _hitTimes.Count >= Mathf.RoundToInt(fork.ShotCorneredHits))
+        {
+            InterruptToFight(enemy, now, $"cornered: {_hitTimes.Count} hits in {fork.ShotCorneredWindow:0} s, last at {distance:0} m");
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>The shooter is within the close interrupt distance without shooting (it walked up to the bot): the bot fights. Checked a few times a second.</summary>
+    private void TryProximityInterrupt(float now)
+    {
+        float limit = GlobalSettings.Fork.ShotCloseInterruptDistance;
+        if (limit <= 0f || now < _nextProximityCheck || !Interruptible || _enemy == null || !Enemy.IsEnemyActive(_enemy))
+        {
+            return;
+        }
+        _nextProximityCheck = now + 0.2f;
+        var player = _enemy.EnemyPlayer;
+        if (player == null)
+        {
+            return;
+        }
+        float distance = (player.Position - Bot.Position).magnitude;
+        if (distance <= limit)
+        {
+            InterruptToFight(_enemy, now, $"the shooter is {distance:0.0} m away");
+        }
+    }
+
     public override void ManualUpdate()
     {
         float now = Time.time;
+        TryProximityInterrupt(now);
         // Safety net: the decision hook only runs when this shooter is the bot's chosen enemy and nothing earlier in the decision order wins
         // (self actions, grenade avoidance, squad decisions ...). Without this a state could stay set, and keep rules like the sprint override, for good.
         if (Outcome != EShotReaction.None || Relocating)
@@ -1727,13 +1808,14 @@ public class ShotReactionClass : BotComponentClassBase
         NormalizeWithLimits(ref cover, ref fight, fork, tableRatio);
 
         bool pointBlank = distance <= POINT_BLANK_DISTANCE;
-        if (pointBlank && fight < POINT_BLANK_FIGHT_SHARE)
+        float pointBlankShare = POINT_BLANK_FIGHT_SHARE;
+        if (pointBlank && fight < pointBlankShare)
         {
             // Applied after the limits on purpose: a short-reach weapon would otherwise cap Fight far below this.
             float others = cover;
-            float scale = others > 0f ? (1f - POINT_BLANK_FIGHT_SHARE) / others : 0f;
+            float scale = others > 0f ? (1f - pointBlankShare) / others : 0f;
             cover *= scale;
-            fight = POINT_BLANK_FIGHT_SHARE;
+            fight = pointBlankShare;
         }
 
         float pick = Random.value;

@@ -658,16 +658,44 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction/Point blank & close range")]
     [Name("Point Blank Distance")]
-    [Description("Hit or shot at from this close (meters) the bot fights back: no concealment effect and at least the Point Blank Fight Share. Hard stop, no fade. 0 = off.")]
+    [Description("Hit or shot at from this close (meters) the bot fights back with the Point Blank Fight Share chance, with no concealment effect. Hard stop, no fade. 0 = off.")]
     [MinMax(0f, 30f, 1f)]
     public float ShotPointBlankDistance = 10f;
 
     [DataMember]
     [Category("Shot Reaction/Point blank & close range")]
     [Name("Point Blank Fight Share")]
-    [Description("Minimum chance of fighting back inside the Point Blank Distance. The rest is split between cover, suppress and hunt.")]
+    [Description("Chance of fighting back inside the Point Blank Distance. 95% leaves a little randomness. The rest is cover.")]
     [MinMax(0.3f, 1f, 100f)]
-    public float ShotPointBlankFightShare = 0.8f;
+    public float ShotPointBlankFightShare = 0.95f;
+
+    [DataMember]
+    [Category("Shot Reaction/Point blank & close range")]
+    [Name("Close Interrupt Distance")]
+    [Description("A shooter this close (meters), shooting or not, always makes the bot fight: it interrupts a hide, hold, investigation or retreat already in effect. 0 = off.")]
+    [MinMax(0f, 30f, 1f)]
+    public float ShotCloseInterruptDistance = 5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Point blank & close range")]
+    [Name("Cornered Hits")]
+    [Description("A bot that hides or retreats and takes this many hits within the Cornered Window (from the Cornered Distance or closer) stops and fights. 0 = off.")]
+    [MinMax(0f, 10f, 1f)]
+    public float ShotCorneredHits = 3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Point blank & close range")]
+    [Name("Cornered Window")]
+    [Description("Seconds in which the Cornered Hits have to land.")]
+    [MinMax(1f, 30f, 1f)]
+    public float ShotCorneredWindow = 5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Point blank & close range")]
+    [Name("Cornered Distance")]
+    [Description("Hits from farther than this (meters) do not count as cornering: the bot keeps running for cover.")]
+    [MinMax(5f, 150f, 1f)]
+    public float ShotCorneredDistance = 30f;
 
     [DataMember]
     [Category("Shot Reaction/Point blank & close range")]
