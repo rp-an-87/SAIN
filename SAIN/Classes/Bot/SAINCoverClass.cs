@@ -94,7 +94,7 @@ public class SAINCoverClass : BotComponentClassBase
         {
             return;
         }
-        Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.name}: {message}");
+        Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.ShotReaction.Tag}: {message}");
     }
 
     private string _lastSprintReason;
@@ -505,14 +505,14 @@ public class SAINCoverClass : BotComponentClassBase
         {
             if (log)
             {
-                Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.name}: cover away from the shot, {_relocateTemp.Count} of {_coverPoints.Count} points qualify");
+                Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.ShotReaction.Tag}: cover away from the shot, {_relocateTemp.Count} of {_coverPoints.Count} points qualify");
             }
             _coverPoints.Clear();
             _coverPoints.AddRange(_relocateTemp);
         }
         else if (log)
         {
-            Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.name}: no cover away from the shot, nearest cover of {_coverPoints.Count} used");
+            Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.ShotReaction.Tag}: no cover away from the shot, nearest cover of {_coverPoints.Count} used");
         }
     }
 

@@ -266,7 +266,7 @@ public class ShotReactionClass : BotComponentClassBase
             _steerLogged = true;
             if (GlobalSettings.Fork.ShotReactionLog)
             {
-                Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.name}: steering to the {target}, not the shooter");
+                Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Tag}: steering to the {target}, not the shooter");
             }
         }
         return target != null;
@@ -1576,7 +1576,7 @@ public class ShotReactionClass : BotComponentClassBase
             if (fork.ShotReactionLog)
             {
                 Logger.LogInfoAlways(
-                    $"[ShotReaction] t={Time.time:0.0} {Bot.name}: relocating {(best - from).magnitude:0} m, {(best - shotArea).magnitude:0} m from the shot area"
+                    $"[ShotReaction] t={Time.time:0.0} {Tag}: relocating {(best - from).magnitude:0} m, {(best - shotArea).magnitude:0} m from the shot area"
                 );
             }
             BuildRoute(from, best, shotArea);
@@ -1584,7 +1584,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         if (!requireBrokenLos && fork.ShotReactionLog)
         {
-            Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.name}: no relocation point found, back to normal");
+            Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Tag}: no relocation point found, back to normal");
         }
         return false;
     }
@@ -1772,14 +1772,24 @@ public class ShotReactionClass : BotComponentClassBase
         {
             reason = "no enemy";
         }
-        Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.name} ({Bot.Info.Profile.WildSpawnType}): {(hit ? "hit" : "bullet")} ignored: {reason}");
+        Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Tag}: {(hit ? "hit" : "bullet")} ignored: {reason}");
+    }
+
+    /// <summary>Log label: the bot's name, its brain (spawn type) and, for a PMC, its nickname.</summary>
+    public string Tag
+    {
+        get
+        {
+            var profile = Bot.Info.Profile;
+            return profile.IsPMC ? $"{Bot.name} [{profile.WildSpawnType} {profile.NickName}]" : $"{Bot.name} [{profile.WildSpawnType}]";
+        }
     }
 
     private void LogEvent(string message)
     {
         if (GlobalSettings.Fork.ShotReactionLog)
         {
-            Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Bot.name}: {message}");
+            Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Tag}: {message}");
         }
     }
 
@@ -2139,7 +2149,7 @@ public class ShotReactionClass : BotComponentClassBase
         if (fork.ShotReactionLog)
         {
             Logger.LogInfoAlways(
-                $"[ShotReaction] t={Time.time:0.0} {Bot.name} ({Bot.Info.Personality}) vs {enemy.EnemyName}: dist {distance:0} m, reach {reach:0} m, hit {hit}, visible {enemy.IsVisible} ({enemy.VisibleDuration:0.0} s), look angle {lookAngle:0} deg, moving {Bot.Mover.Moving}, running {Bot.Mover.Running}, "
+                $"[ShotReaction] t={Time.time:0.0} {Tag} ({Bot.Info.Personality}) vs {enemy.EnemyName}: dist {distance:0} m, reach {reach:0} m, hit {hit}, visible {enemy.IsVisible} ({enemy.VisibleDuration:0.0} s), look angle {lookAngle:0} deg, moving {Bot.Mover.Moving}, running {Bot.Mover.Running}, "
                     + $"weapon {weaponInfo.EWeaponClass} {weaponInfo.SelectedFireMode}{(weaponInfo.HasFireMode(Weapon.EFireMode.fullauto) ? " (full auto available)" : "")}, health {health}, bullets {Bot.BotOwner.WeaponManager?.HaveBullets} reloading {Bot.BotOwner.WeaponManager?.Reload?.Reloading}, "
                     + $"shares cover {cover:0.00} fight {fight:0.00}{(pointBlank ? " (point blank)" : "")} -> {outcome}"
             );
