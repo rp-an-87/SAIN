@@ -591,6 +591,15 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Under fire")]
+    [Name("Close Spot Coefficient")]
+    [Description(
+        "Multiplier on the time a bot needs to spot the shooter while its shot reaction is active and the shooter is within the Close Interrupt Distance. Low = the bot notices a shooter at arm's length almost at once. 1 = no bonus."
+    )]
+    [MinMax(0.01f, 1f, 100f)]
+    public float ShotCloseSpotCoef = 0.15f;
+
+    [DataMember]
+    [Category("Shot Reaction/Under fire")]
     [Name("Under Fire Vision Multiplier")]
     [Description("Multiplier on the distance a bot sees a shooter that is firing at it, when Shot Reaction is on for that bot. Original SAIN value: 1.5. 1 = no bonus.")]
     [MinMax(0.5f, 3f, 100f)]
@@ -1046,6 +1055,20 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("The bot stops advancing and holds when it is this close (meters) to the shot area.")]
     [MinMax(0f, 100f, 1f)]
     public float ShotInvestigateStopDistance = 15f;
+
+    [DataMember]
+    [Category("Shot Reaction/Investigate timing")]
+    [Name("Advance Without Cover Chance")]
+    [Description("A bot that investigates, sits in cover with no closer cover point and is still farther than the Ambush Distance from the shot area runs toward the area (instead of holding and watching) with this chance. Aggressive personalities advance more often, timid ones less. 0 = always hold.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotAdvanceNoCoverChance = 0.6f;
+
+    [DataMember]
+    [Category("Shot Reaction/Investigate timing")]
+    [Name("Advance Without Cover Time")]
+    [Description("Longest time (seconds) of that run. After it the bot holds and watches wherever it is.")]
+    [MinMax(3f, 40f, 1f)]
+    public float ShotAdvanceNoCoverTime = 12f;
 
     [DataMember]
     [Category("Shot Reaction/Investigate timing")]

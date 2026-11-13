@@ -548,9 +548,54 @@ public class ShotReactionClass : BotComponentClassBase
             _hopBestDistance = float.MaxValue;
             _hopProgressTime = now;
             _hopHold = HopHoldTime();
+            _advanceRunUntil = 0f;
             LogEvent("advance: next cover closer to the shot area");
             decision = ECombatDecision.SeekCover;
             return true;
+        }
+        ForkSettings advanceFork = GlobalSettings.Fork;
+        if (_advanceRunUntil > 0f)
+        {
+            if (now < _advanceRunUntil)
+            {
+                SprintWhileInvestigating = true;
+                decision = ECombatDecision.Search;
+                return true;
+            }
+            // The run is over: hold and watch wherever the bot is.
+            _advanceRunUntil = 0f;
+            _ambushUntil = now + Random.Range(AMBUSH_TIME_MIN, AMBUSH_TIME_MAX);
+            LogEvent("advance: the run is over, holding and watching");
+            decision = ECombatDecision.SeekCover;
+            return true;
+        }
+        if (inCover && !_advanceRolled && advanceFork.ShotAdvanceNoCoverChance > 0f && _vaguePositionTime > 0f && (Bot.Position - area).magnitude > INVESTIGATE_STOP_DISTANCE)
+        {
+            // No closer cover but still far from the area: an aggressive bot runs toward it instead of sitting (once per investigation).
+            _advanceRolled = true;
+            float advanceChance = advanceFork.ShotAdvanceNoCoverChance;
+            switch (Bot.Info.Personality)
+            {
+                case EPersonality.Wreckless:
+                case EPersonality.GigaChad:
+                case EPersonality.Chad:
+                    advanceChance = Mathf.Min(1f, advanceChance * advanceFork.ShotAggressivePull);
+                    break;
+                case EPersonality.Rat:
+                case EPersonality.Timmy:
+                case EPersonality.Coward:
+                    advanceChance /= advanceFork.ShotTimidPull;
+                    break;
+            }
+            if (Random.value < advanceChance)
+            {
+                _advanceRunUntil = now + advanceFork.ShotAdvanceNoCoverTime;
+                LogEvent($"advance: no closer cover, {(Bot.Position - area).magnitude:0} m from the shot area, running toward it for up to {advanceFork.ShotAdvanceNoCoverTime:0} s (chance {advanceChance:0.00})");
+                SprintWhileInvestigating = true;
+                decision = ECombatDecision.Search;
+                return true;
+            }
+            LogEvent($"advance: no closer cover, {(Bot.Position - area).magnitude:0} m from the shot area, holding (chance {advanceChance:0.00})");
         }
         if (inCover)
         {
@@ -819,6 +864,8 @@ public class ShotReactionClass : BotComponentClassBase
         _hideUntil = now;
         _investigateStart = now;
         _ambushUntil = 0f;
+        _advanceRunUntil = 0f;
+        _advanceRolled = false;
         _hopHold = HopHoldTime();
         _expireTime = now + fork.ShotHuntTimeMax;
     }
@@ -1517,6 +1564,22 @@ public class ShotReactionClass : BotComponentClassBase
 
     private readonly System.Collections.Generic.Queue<float> _hitTimes = new System.Collections.Generic.Queue<float>();
     private float _nextProximityCheck;
+    private float _closeDiagUntil;
+    private float _nextCloseDiag;
+
+    /// <summary>After a close interrupt, logs once a second for 8 s whether the bot sees and can shoot the shooter and what it decided (diagnoses spotting delays).</summary>
+    private void LogCloseDiagnostics(float now)
+    {
+        if (now >= _closeDiagUntil || now < _nextCloseDiag || _enemy == null)
+        {
+            return;
+        }
+        _nextCloseDiag = now + 1f;
+        LogEvent(
+            $"close fight: {(_enemy.EnemyPlayer != null ? (_enemy.EnemyPlayer.Position - Bot.Position).magnitude : -1f):0.0} m, visible {_enemy.IsVisible} ({_enemy.VisibleDuration:0.0} s), can shoot {_enemy.CanShoot}, "
+                + $"goal enemy {(Bot.GoalEnemy == _enemy)}, decision {Bot.Decision.CurrentCombatDecision}"
+        );
+    }
 
     /// <summary>A state a close shooter can interrupt: hiding, holding cover firing, investigating or retreating. A fight is never interrupted.</summary>
     private bool Interruptible
@@ -1536,6 +1599,8 @@ public class ShotReactionClass : BotComponentClassBase
         Bot.Cover.ClearShotState();
         _hitTimes.Clear();
         Apply(enemy, EShotReaction.Fight, 0f, now, GlobalSettings.Fork);
+        _closeDiagUntil = now + 8f;
+        _nextCloseDiag = now;
     }
 
     /// <summary>
@@ -1590,6 +1655,7 @@ public class ShotReactionClass : BotComponentClassBase
     {
         float now = Time.time;
         TryProximityInterrupt(now);
+        LogCloseDiagnostics(now);
         // Safety net: the decision hook only runs when this shooter is the bot's chosen enemy and nothing earlier in the decision order wins
         // (self actions, grenade avoidance, squad decisions ...). Without this a state could stay set, and keep rules like the sprint override, for good.
         if (Outcome != EShotReaction.None || Relocating)
@@ -1939,6 +2005,8 @@ public class ShotReactionClass : BotComponentClassBase
         _repeatRelocations = 0;
         _returnUntil = 0f;
         _ambushUntil = 0f;
+        _advanceRunUntil = 0f;
+        _advanceRolled = false;
         SprintWhileInvestigating = false;
         _nextRollTime = now + fork.ShotRerollInterval;
         _steerLogged = false;
@@ -1993,6 +2061,8 @@ public class ShotReactionClass : BotComponentClassBase
     private float _nextCloseLog;
     private float _lastShotDistance = 9999f;
     private float _ambushUntil;
+    private float _advanceRunUntil;
+    private bool _advanceRolled;
     private float _traceUntil;
     private float _nextTrace;
     private Enemy _lastSeenEnemy;

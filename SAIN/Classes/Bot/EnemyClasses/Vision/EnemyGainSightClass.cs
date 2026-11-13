@@ -140,6 +140,14 @@ public static class EnemyGainSightClass
         float poseMod = PoseModifier(enemy);
         float unknownMod = CalcUnknownMod(enemy);
 
+        // Fork: a shooter at arm's length (inside the close interrupt distance) is noticed at once while the shot reaction is active.
+        float closeSpotMod = 1f;
+        var fork = SAINPlugin.LoadedPreset.GlobalSettings.Fork;
+        if (enemy.Bot.ShotReaction.Enabled && enemy.Bot.ShotReaction.IsManaging(enemy) && fork.ShotCloseInterruptDistance > 0f && enemy.RealDistance <= fork.ShotCloseInterruptDistance)
+        {
+            closeSpotMod = fork.ShotCloseSpotCoef;
+        }
+
         float notLookMod = 1f;
         if (!enemy.IsAI)
         {
@@ -159,6 +167,7 @@ public static class EnemyGainSightClass
             * angleMod
             * notLookMod
             * unknownMod
+            * closeSpotMod
             * poseMod;
 
         //if (enemy.EnemyPlayer.IsYourPlayer)
