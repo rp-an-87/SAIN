@@ -806,6 +806,12 @@ public class ShotReactionClass : BotComponentClassBase
     private EFollowUp ChooseFollowUp(Enemy enemy)
     {
         ForkSettings fork = GlobalSettings.Fork;
+        if (_forceFightOn)
+        {
+            _forceFightOn = false;
+            LogEvent("after hiding: FightOn (forced, the far Fight roll)");
+            return EFollowUp.FightOn;
+        }
         float retreat = fork.ShotRelocateEnabled ? fork.ShotFollowRetreat : 0f;
         float fightOn = fork.ShotFollowFightOn;
         float investigate = fork.ShotFollowInvestigate;
@@ -2157,6 +2163,7 @@ public class ShotReactionClass : BotComponentClassBase
         _searchUntil = 0f;
         _fireCycleStart = -1f;
         _pendingFollow = null;
+        _forceFightOn = false;
         _ambushUntil = 0f;
         _postRetreat = false;
         Bot.Cover.ClearShotState();
@@ -2291,6 +2298,24 @@ public class ShotReactionClass : BotComponentClassBase
             fight = pointBlankShare;
         }
 
+        // Far range, the mirror of point blank: a minimum Cover share that ramps up with the real distance. Applied after the limits on purpose.
+        float farT = 0f;
+        if (fork.ShotFarStartDistance > 0f)
+        {
+            farT = Mathf.InverseLerp(fork.ShotFarStartDistance, Mathf.Max(fork.ShotFarFullDistance, fork.ShotFarStartDistance + 1f), distance);
+        }
+        string farNote = "";
+        if (farT > 0f)
+        {
+            float minCover = Mathf.Clamp01(fork.ShotFarCoverShare) * farT;
+            if (cover < minCover)
+            {
+                cover = minCover;
+                fight = 1f - cover;
+            }
+            farNote = $" (far {farT:0.00}, min cover {minCover:0.00})";
+        }
+
         float pick = Random.value;
         EShotReaction outcome;
         if (pick < cover)
@@ -2302,7 +2327,20 @@ public class ShotReactionClass : BotComponentClassBase
             outcome = EShotReaction.Fight;
         }
 
+        // A far Fight roll is never "turn around and blind fire": it runs to cover first and fights on from there (chance ramps with distance).
+        bool farFightViaCover = false;
+        if (outcome == EShotReaction.Fight && farT > 0f && fork.ShotFarFightViaCover && Random.value < farT)
+        {
+            outcome = EShotReaction.Cover;
+            farFightViaCover = true;
+        }
+
         Apply(enemy, outcome, ratio, now, fork);
+        _forceFightOn = farFightViaCover;
+        if (farFightViaCover)
+        {
+            LogEvent($"far fight: {distance:0} m, the Fight roll becomes Cover, then Fight On (far {farT:0.00})");
+        }
         if (outcome != EShotReaction.Fight)
         {
             // A bot that already sits in cover has nowhere to run to: shot at there, it moves to another cover.
@@ -2314,7 +2352,7 @@ public class ShotReactionClass : BotComponentClassBase
             Logger.LogInfoAlways(
                 $"[ShotReaction] t={Time.time:0.0} {Tag} ({Bot.Info.Personality}) vs {enemy.EnemyName}: dist {distance:0} m, reach {reach:0} m, hit {hit}, visible {enemy.IsVisible} ({enemy.VisibleDuration:0.0} s), look angle {lookAngle:0} deg, moving {Bot.Mover.Moving}, running {Bot.Mover.Running}, "
                     + $"weapon {weaponInfo.EWeaponClass} {weaponInfo.SelectedFireMode}{(weaponInfo.HasFireMode(Weapon.EFireMode.fullauto) ? " (full auto available)" : "")}, health {health}, bullets {Bot.BotOwner.WeaponManager?.HaveBullets} reloading {Bot.BotOwner.WeaponManager?.Reload?.Reloading}, "
-                    + $"shares cover {cover:0.00} fight {fight:0.00}{(pointBlank ? " (point blank)" : "")} -> {outcome}"
+                    + $"shares cover {cover:0.00} fight {fight:0.00}{(pointBlank ? " (point blank)" : "")}{farNote} -> {outcome}{(farFightViaCover ? " (Fight via Cover)" : "")}"
             );
         }
     }
@@ -2418,6 +2456,7 @@ public class ShotReactionClass : BotComponentClassBase
         _searchUntil = 0f;
         _fireCycleStart = -1f;
         _pendingFollow = null;
+        _forceFightOn = false;
         SprintWhileInvestigating = false;
         _nextRollTime = now + fork.ShotRerollInterval;
         _steerLogged = false;
@@ -2467,6 +2506,7 @@ public class ShotReactionClass : BotComponentClassBase
     private bool _steerLogged;
     private float _inCoverSince = -1f;
     private bool _followDone;
+    private bool _forceFightOn;
     private float _investigateStart;
     private float _hopHold = 5f;
     private float _nextSelfPreserve;

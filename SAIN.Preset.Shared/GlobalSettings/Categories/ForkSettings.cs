@@ -712,6 +712,33 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public float ShotPointBlankFightShare = 0.95f;
 
     [DataMember]
+    [Category("Shot Reaction/Far range")]
+    [Name("Far Range Start Distance")]
+    [Description("The mirror of the point blank rule. From this distance (meters) on, the bot is nudged toward running to cover: a minimum Cover share that grows with distance up to the Far Range Full Distance. A Fight roll beyond it turns into Cover, then Fight On (never an instant turn and blind fire). 0 = off.")]
+    [MinMax(0f, 400f, 1f)]
+    public float ShotFarStartDistance = 80f;
+
+    [DataMember]
+    [Category("Shot Reaction/Far range")]
+    [Name("Far Range Full Distance")]
+    [Description("From this distance (meters) on, the Far Range Cover Share applies in full and every Fight roll turns into Cover, then Fight On.")]
+    [MinMax(20f, 500f, 1f)]
+    public float ShotFarFullDistance = 150f;
+
+    [DataMember]
+    [Category("Shot Reaction/Far range")]
+    [Name("Far Range Cover Share")]
+    [Description("Minimum chance of running to cover at the Far Range Full Distance (it ramps up from nothing at the start distance). 95% leaves a little randomness, like the point blank share. The rest is Fight, which still turns into Cover then Fight On by the same ramp.")]
+    [MinMax(0.3f, 1f, 100f)]
+    public float ShotFarCoverShare = 0.95f;
+
+    [DataMember]
+    [Category("Shot Reaction/Far range")]
+    [Name("Far Range Fight Goes To Cover First")]
+    [Description("A Fight roll beyond the Far Range Start Distance becomes Cover with a forced Fight On follow-up: the bot sprints to cover, then fires at the vague area from there. The chance ramps with distance like the cover share.")]
+    public bool ShotFarFightViaCover = true;
+
+    [DataMember]
     [Category("Shot Reaction/Point blank & close range")]
     [Name("Close Interrupt Distance")]
     [Description("A shooter this close (meters), shooting or not, always makes the bot fight: it interrupts a hide, hold, investigation or retreat already in effect. 0 = off.")]
