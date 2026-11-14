@@ -939,12 +939,72 @@ public class ShotReactionClass : BotComponentClassBase
             }
             return;
         }
-        Bot.Suppression.SuppressPosition(area + Vector3.up * 1.2f, enemy);
+        Vector3 aim = area + Vector3.up * 1.2f;
+        LogBlindFire("Fight", Bot.Suppression.SuppressPosition(aim, enemy), aim);
     }
 
     public void FightSearchEnded()
     {
+        _blindFiring = false;
         Bot.Suppression.ResetSuppressing();
+    }
+
+    private bool _blindFiring;
+    private float _nextBlindLog;
+
+    /// <summary>
+    /// Log line for the blind fire (Fight search, Fight On cycle): one line when it starts firing, and at most one per second saying why it is not.
+    /// </summary>
+    private void LogBlindFire(string mode, bool fired, Vector3 aim)
+    {
+        if (!GlobalSettings.Fork.ShotReactionLog)
+        {
+            return;
+        }
+        float now = Time.time;
+        if (fired)
+        {
+            if (!_blindFiring)
+            {
+                _blindFiring = true;
+                LogEvent($"blind fire ({mode}): firing at the vague area, {(Bot.Position - aim).magnitude:0} m, aim angle {Bot.Steering.AngleToPointFromLookDir(aim):0} deg");
+            }
+            return;
+        }
+        _blindFiring = false;
+        if (now < _nextBlindLog)
+        {
+            return;
+        }
+        _nextBlindLog = now + 1f;
+        var weapon = Bot.BotOwner.WeaponManager;
+        string why;
+        if (weapon.IsMelee)
+        {
+            why = "melee weapon in hand";
+        }
+        else if (!weapon.IsWeaponReady)
+        {
+            why = "weapon not ready";
+        }
+        else if (weapon.Reload.Reloading)
+        {
+            why = "reloading";
+        }
+        else if (!weapon.HaveBullets)
+        {
+            why = "no bullets";
+        }
+        else if (!Bot.BotOwner.ShootData.CanShootByState)
+        {
+            why = "cannot shoot in its current state (sprinting, changing weapon)";
+        }
+        else
+        {
+            float angle = Bot.Steering.AngleToPointFromLookDir(aim);
+            why = angle > 10f ? $"not facing the area yet ({angle:0} deg, needs 10 or less)" : "friendly in the line of fire, or the shot was refused";
+        }
+        LogEvent($"blind fire ({mode}): not firing: {why}");
     }
 
     /// <summary>
@@ -975,6 +1035,7 @@ public class ShotReactionClass : BotComponentClassBase
         float phase = (now - _fireCycleStart) % cycle;
         if (phase >= fork.ShotFightFireTime)
         {
+            _blindFiring = false;
             Bot.Suppression.ResetSuppressing();
             return false;
         }
@@ -984,7 +1045,10 @@ public class ShotReactionClass : BotComponentClassBase
         {
             return false;
         }
-        return Bot.Suppression.SuppressPosition(area + Vector3.up * 1.2f, enemy);
+        Vector3 aim = area + Vector3.up * 1.2f;
+        bool fired = Bot.Suppression.SuppressPosition(aim, enemy);
+        LogBlindFire("Fight On", fired, aim);
+        return fired;
     }
 
     private bool ApplyFollowUp(EFollowUp follow, float now, out ECombatDecision decision)
