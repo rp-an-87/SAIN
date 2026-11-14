@@ -713,30 +713,44 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Far range")]
+    [Name("Far Range Fight Goes To Cover First")]
+    [Description("A Fight roll beyond the Far Range Start Distance may turn into Cover followed by a (boosted) Fight On: the bot sprints to cover and fires at the vague area from there, instead of turning around and blind firing at once. The chance ramps with distance (see the other Far Range settings). Off = Fight rolls always fight at once.")]
+    public bool ShotFarFightViaCover = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Far range")]
     [Name("Far Range Start Distance")]
-    [Description("The mirror of the point blank rule. From this distance (meters) on, the bot is nudged toward running to cover: a minimum Cover share that grows with distance up to the Far Range Full Distance. A Fight roll beyond it turns into Cover, then Fight On (never an instant turn and blind fire). 0 = off.")]
+    [Description("Meters. From this distance on, a Fight roll can turn into Cover then Fight On, with a chance that starts at 0 here. Lower it to start earlier. 0 = off.")]
     [MinMax(0f, 400f, 1f)]
     public float ShotFarStartDistance = 80f;
 
     [DataMember]
     [Category("Shot Reaction/Far range")]
     [Name("Far Range Full Distance")]
-    [Description("From this distance (meters) on, the Far Range Cover Share applies in full and every Fight roll turns into Cover, then Fight On.")]
+    [Description("Meters. From this distance on the chance is at its maximum (Far Range Max Chance). Move it closer to the start distance to make the effect ramp up faster.")]
     [MinMax(20f, 500f, 1f)]
-    public float ShotFarFullDistance = 150f;
+    public float ShotFarFullDistance = 120f;
 
     [DataMember]
     [Category("Shot Reaction/Far range")]
-    [Name("Far Range Cover Share")]
-    [Description("Minimum chance of running to cover at the Far Range Full Distance (it ramps up from nothing at the start distance). 95% leaves a little randomness, like the point blank share. The rest is Fight, which still turns into Cover then Fight On by the same ramp.")]
-    [MinMax(0.3f, 1f, 100f)]
-    public float ShotFarCoverShare = 0.95f;
+    [Name("Far Range Max Chance")]
+    [Description("The chance that a Fight roll turns into Cover then Fight On at the full distance and beyond. 85% leaves a rare true instant Fight.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotFarMaxConvert = 0.85f;
 
     [DataMember]
     [Category("Shot Reaction/Far range")]
-    [Name("Far Range Fight Goes To Cover First")]
-    [Description("A Fight roll beyond the Far Range Start Distance becomes Cover with a forced Fight On follow-up: the bot sprints to cover, then fires at the vague area from there. The chance ramps with distance like the cover share.")]
-    public bool ShotFarFightViaCover = true;
+    [Name("Far Range Curve")]
+    [Description("Shape of the ramp between the start and the full distance. 1 = straight line, 2 = rises fast at first then flattens (chance at the halfway point is 75% of the maximum), 3 = faster still. Below 1 it starts slowly.")]
+    [MinMax(0.3f, 5f, 10f)]
+    public float ShotFarCurve = 2f;
+
+    [DataMember]
+    [Category("Shot Reaction/Far range")]
+    [Name("Far Range Fight On Boost")]
+    [Description("A bot whose Fight roll turned into Cover picks its follow-up like any hiding bot (personality, injury, reach limit, squad), but with the Fight On weight multiplied by this. 1 = no boost.")]
+    [MinMax(1f, 20f, 10f)]
+    public float ShotFarFightOnBoost = 4f;
 
     [DataMember]
     [Category("Shot Reaction/Point blank & close range")]

@@ -806,12 +806,8 @@ public class ShotReactionClass : BotComponentClassBase
     private EFollowUp ChooseFollowUp(Enemy enemy)
     {
         ForkSettings fork = GlobalSettings.Fork;
-        if (_forceFightOn)
-        {
-            _forceFightOn = false;
-            LogEvent("after hiding: FightOn (forced, the far Fight roll)");
-            return EFollowUp.FightOn;
-        }
+        bool farFight = _farFight;
+        _farFight = false;
         float retreat = fork.ShotRelocateEnabled ? fork.ShotFollowRetreat : 0f;
         float fightOn = fork.ShotFollowFightOn;
         float investigate = fork.ShotFollowInvestigate;
@@ -886,6 +882,12 @@ public class ShotReactionClass : BotComponentClassBase
             }
         }
 
+        if (farFight)
+        {
+            // The roll said "fight": the reach, weapon and personality that decided it carry over as a stronger Fight On.
+            fightOn *= fork.ShotFarFightOnBoost;
+        }
+
         float total = retreat + fightOn + investigate;
         EFollowUp choice = EFollowUp.FightOn;
         if (total > 0f)
@@ -900,7 +902,7 @@ public class ShotReactionClass : BotComponentClassBase
                 choice = EFollowUp.Investigate;
             }
         }
-        LogEvent($"after hiding: {choice} (weights retreat {retreat:0.00}, fight on {fightOn:0.00}, investigate {investigate:0.00})");
+        LogEvent($"after hiding: {choice} (weights retreat {retreat:0.00}, fight on {fightOn:0.00}, investigate {investigate:0.00}{(farFight ? ", far fight boost" : "")})");
         return choice;
     }
 
@@ -2163,7 +2165,7 @@ public class ShotReactionClass : BotComponentClassBase
         _searchUntil = 0f;
         _fireCycleStart = -1f;
         _pendingFollow = null;
-        _forceFightOn = false;
+        _farFight = false;
         _ambushUntil = 0f;
         _postRetreat = false;
         Bot.Cover.ClearShotState();
@@ -2298,23 +2300,15 @@ public class ShotReactionClass : BotComponentClassBase
             fight = pointBlankShare;
         }
 
-        // Far range, the mirror of point blank: a minimum Cover share that ramps up with the real distance. Applied after the limits on purpose.
+        // Far range: a Fight draw beyond the start distance may turn into Cover, then a boosted Fight On (never an instant turn and blind fire).
+        // The chance ramps from 0 at the start distance to the maximum at the full distance, along a curve.
         float farT = 0f;
-        if (fork.ShotFarStartDistance > 0f)
+        if (fork.ShotFarStartDistance > 0f && fork.ShotFarFightViaCover)
         {
-            farT = Mathf.InverseLerp(fork.ShotFarStartDistance, Mathf.Max(fork.ShotFarFullDistance, fork.ShotFarStartDistance + 1f), distance);
+            float u = Mathf.InverseLerp(fork.ShotFarStartDistance, Mathf.Max(fork.ShotFarFullDistance, fork.ShotFarStartDistance + 1f), distance);
+            farT = Mathf.Clamp01(fork.ShotFarMaxConvert) * (1f - Mathf.Pow(1f - u, Mathf.Max(fork.ShotFarCurve, 0.1f)));
         }
-        string farNote = "";
-        if (farT > 0f)
-        {
-            float minCover = Mathf.Clamp01(fork.ShotFarCoverShare) * farT;
-            if (cover < minCover)
-            {
-                cover = minCover;
-                fight = 1f - cover;
-            }
-            farNote = $" (far {farT:0.00}, min cover {minCover:0.00})";
-        }
+        string farNote = farT > 0f ? $" (far convert chance {farT:0.00})" : "";
 
         float pick = Random.value;
         EShotReaction outcome;
@@ -2327,19 +2321,18 @@ public class ShotReactionClass : BotComponentClassBase
             outcome = EShotReaction.Fight;
         }
 
-        // A far Fight roll is never "turn around and blind fire": it runs to cover first and fights on from there (chance ramps with distance).
         bool farFightViaCover = false;
-        if (outcome == EShotReaction.Fight && farT > 0f && fork.ShotFarFightViaCover && Random.value < farT)
+        if (outcome == EShotReaction.Fight && farT > 0f && Random.value < farT)
         {
             outcome = EShotReaction.Cover;
             farFightViaCover = true;
         }
 
         Apply(enemy, outcome, ratio, now, fork);
-        _forceFightOn = farFightViaCover;
+        _farFight = farFightViaCover;
         if (farFightViaCover)
         {
-            LogEvent($"far fight: {distance:0} m, the Fight roll becomes Cover, then Fight On (far {farT:0.00})");
+            LogEvent($"far fight: {distance:0} m, the Fight roll becomes Cover, then Fight On with weight x{fork.ShotFarFightOnBoost:0.#} (chance {farT:0.00})");
         }
         if (outcome != EShotReaction.Fight)
         {
@@ -2456,7 +2449,7 @@ public class ShotReactionClass : BotComponentClassBase
         _searchUntil = 0f;
         _fireCycleStart = -1f;
         _pendingFollow = null;
-        _forceFightOn = false;
+        _farFight = false;
         SprintWhileInvestigating = false;
         _nextRollTime = now + fork.ShotRerollInterval;
         _steerLogged = false;
@@ -2506,7 +2499,7 @@ public class ShotReactionClass : BotComponentClassBase
     private bool _steerLogged;
     private float _inCoverSince = -1f;
     private bool _followDone;
-    private bool _forceFightOn;
+    private bool _farFight;
     private float _investigateStart;
     private float _hopHold = 5f;
     private float _nextSelfPreserve;
