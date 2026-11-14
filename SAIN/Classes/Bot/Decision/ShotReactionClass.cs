@@ -517,6 +517,12 @@ public class ShotReactionClass : BotComponentClassBase
         {
             UpdatePostRetreatHold(now);
         }
+        if (Outcome == EShotReaction.Fight && now < _searchUntil && !seesShooter)
+        {
+            // Fight against a shooter it cannot see: it stops and searches the vague area (see FightSearchTick).
+            decision = ECombatDecision.ShotSearch;
+            return true;
+        }
         if (now < _hideUntil)
         {
             decision = ECombatDecision.SeekCover;
@@ -890,6 +896,95 @@ public class ShotReactionClass : BotComponentClassBase
         }
         LogEvent($"after hiding: {choice} (weights retreat {retreat:0.00}, fight on {fightOn:0.00}, investigate {investigate:0.00})");
         return choice;
+    }
+
+    /// <summary>
+    /// A Fight roll against an unseen shooter is "search for the one shooting at me": the bot faces the vague area, fires at it and works toward it
+    /// (dogfight movement) for a few seconds. Without this, SAIN's own combat (which has little to do against an enemy it cannot see) walks around until it spots the shooter.
+    /// </summary>
+    private void StartFightSearch(float now, ForkSettings fork)
+    {
+        _searchRangeLogged = false;
+        if (!fork.ShotFightSearchEnabled || fork.ShotFightSearchTime <= 0f)
+        {
+            _searchUntil = 0f;
+            return;
+        }
+        _searchUntil = now + fork.ShotFightSearchTime;
+        _searchFireUntil = now + Mathf.Min(fork.ShotFightFireTime, fork.ShotFightSearchTime);
+        LogEvent($"fight: searching the vague area for {fork.ShotFightSearchTime:0.#} s, firing for {Mathf.Min(fork.ShotFightFireTime, fork.ShotFightSearchTime):0.#} s ({(fork.ShotFightSearchMove ? "moving" : "standing")})");
+    }
+
+    /// <summary>Called every steering tick by ShotSearchAction: look at the vague area and fire at it while the fire window lasts.</summary>
+    public void FightSearchTick(Enemy enemy)
+    {
+        if (enemy == null || _vaguePositionTime <= 0f)
+        {
+            return;
+        }
+        Vector3 area = _vaguePosition;
+        Bot.Steering.LookToFloorPoint(area);
+        if (Time.time >= _searchFireUntil)
+        {
+            Bot.Suppression.ResetSuppressing();
+            return;
+        }
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        if ((Bot.Position - area).magnitude > reach * FIGHT_REACH_LIMIT)
+        {
+            if (!_searchRangeLogged)
+            {
+                _searchRangeLogged = true;
+                LogEvent("fight: the vague area is beyond the weapon reach, watching it without firing");
+            }
+            return;
+        }
+        Bot.Suppression.SuppressPosition(area + Vector3.up * 1.2f, enemy);
+    }
+
+    public void FightSearchEnded()
+    {
+        Bot.Suppression.ResetSuppressing();
+    }
+
+    /// <summary>
+    /// Fight On (holding cover and suppressing): fire bursts at the vague area on a fire / pause cycle instead of relying on SAIN's own suppression
+    /// (which needs a known position it can trace and stays silent otherwise). True = the bot is firing now, the caller skips SAIN's suppression.
+    /// </summary>
+    public bool TryFightOnFire(Enemy enemy)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (!fork.ShotFightSearchEnabled || fork.ShotFightOnFirePause <= 0f || fork.ShotFightFireTime <= 0f)
+        {
+            return false;
+        }
+        if (!IsManaging(enemy) || Outcome != EShotReaction.FightOn || !_followDone || _vaguePositionTime <= 0f)
+        {
+            return false;
+        }
+        if (SeesShooter(enemy) && enemy.CanShoot)
+        {
+            return false;
+        }
+        float now = Time.time;
+        if (_fireCycleStart < 0f)
+        {
+            _fireCycleStart = now;
+        }
+        float cycle = fork.ShotFightFireTime + fork.ShotFightOnFirePause;
+        float phase = (now - _fireCycleStart) % cycle;
+        if (phase >= fork.ShotFightFireTime)
+        {
+            Bot.Suppression.ResetSuppressing();
+            return false;
+        }
+        Vector3 area = _vaguePosition;
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        if ((Bot.Position - area).magnitude > reach * FIGHT_REACH_LIMIT)
+        {
+            return false;
+        }
+        return Bot.Suppression.SuppressPosition(area + Vector3.up * 1.2f, enemy);
     }
 
     private bool ApplyFollowUp(EFollowUp follow, float now, out ECombatDecision decision)
@@ -1637,6 +1732,7 @@ public class ShotReactionClass : BotComponentClassBase
         _followDone = true;
         _hideUntil = now;
         _expireTime = now + fork.ShotFightDuration;
+        StartFightSearch(now, fork);
         SprintWhileInvestigating = false;
         Bot.Cover.ClearShotState();
         return true;
@@ -1781,7 +1877,8 @@ public class ShotReactionClass : BotComponentClassBase
         get
         {
             var profile = Bot.Info.Profile;
-            return profile.IsPMC ? $"{Bot.name} [{profile.WildSpawnType} {profile.NickName}]" : $"{Bot.name} [{profile.WildSpawnType}]";
+            string nickname = Bot.BotOwner?.Profile?.Nickname;
+            return profile.IsPMC && !string.IsNullOrEmpty(nickname) ? $"{Bot.name} [{profile.WildSpawnType} {nickname}]" : $"{Bot.name} [{profile.WildSpawnType}]";
         }
     }
 
@@ -1993,6 +2090,8 @@ public class ShotReactionClass : BotComponentClassBase
         StartTrace(Time.time);
         SprintWhileInvestigating = false;
         _nadeActive = false;
+        _searchUntil = 0f;
+        _fireCycleStart = -1f;
         _pendingFollow = null;
         _ambushUntil = 0f;
         _postRetreat = false;
@@ -2252,6 +2351,8 @@ public class ShotReactionClass : BotComponentClassBase
         _advanceRunUntil = 0f;
         _advanceRolled = false;
         _nadeActive = false;
+        _searchUntil = 0f;
+        _fireCycleStart = -1f;
         _pendingFollow = null;
         SprintWhileInvestigating = false;
         _nextRollTime = now + fork.ShotRerollInterval;
@@ -2276,6 +2377,7 @@ public class ShotReactionClass : BotComponentClassBase
                 // Fight back: no hiding, normal combat starts at once.
                 _hideUntil = now;
                 _expireTime = now + fork.ShotFightDuration;
+                StartFightSearch(now, fork);
                 break;
 
             default: // Cover
@@ -2309,6 +2411,10 @@ public class ShotReactionClass : BotComponentClassBase
     private float _ambushUntil;
     private float _advanceRunUntil;
     private bool _nadeActive;
+    private float _searchUntil;
+    private float _searchFireUntil;
+    private bool _searchRangeLogged;
+    private float _fireCycleStart = -1f;
     private float _nadeStart;
     private float _nadeUntil;
     private float _nextNadeTime;

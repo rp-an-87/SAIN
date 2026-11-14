@@ -21,6 +21,7 @@ public enum ECombatDecision
     FightZombies,
     DebugNoDecision,
     Relocate,
+    ShotSearch,
 }
 
 public enum ESelfActionType

@@ -554,6 +554,39 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Position & timing")]
+    [Name("Fight: Search And Fire")]
+    [Description("A bot that rolled Fight against a shooter it cannot see turns to the vague shot area, fires at it and works toward it, instead of leaving it to SAIN's normal combat (which walks around until it sees the shooter). Off = a Fight is plain SAIN combat at once.")]
+    public bool ShotFightSearchEnabled = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Position & timing")]
+    [Name("Fight: Search Time")]
+    [Description("Seconds a Fight bot searches the vague area this way (before normal SAIN combat takes over). Seeing the shooter ends it at once.")]
+    [MinMax(1f, 15f, 0.5f)]
+    public float ShotFightSearchTime = 4f;
+
+    [DataMember]
+    [Category("Shot Reaction/Position & timing")]
+    [Name("Fight: Move While Searching")]
+    [Description("The searching Fight bot uses SAIN's dogfight movement (strafes, backs up when it must, closes in on the vague area at a run-walk) while it fires, instead of standing still. Off = it stands.")]
+    public bool ShotFightSearchMove = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Position & timing")]
+    [Name("Fight: Fire Time")]
+    [Description("Seconds of that stop during which the bot fires at the vague area (the rest it just watches it). Not fired when the area is farther than the weapon reach.")]
+    [MinMax(0f, 15f, 0.5f)]
+    public float ShotFightFireTime = 2.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Position & timing")]
+    [Name("Fight On: Fire Pause")]
+    [Description("A bot that fights on from cover (suppression) fires at the vague area for Fight: Fire Time, then pauses this many seconds, and repeats, for as long as the state lasts and it has not seen the shooter. 0 = SAIN's own suppression only.")]
+    [MinMax(0f, 15f, 0.5f)]
+    public float ShotFightOnFirePause = 3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Position & timing")]
     [Name("Cover Time Min")]
     [Description("Shortest time, in seconds, a bot keeps to cover after choosing Cover or Suppress (for a close shooter).")]
     [MinMax(0.5f, 30f, 10f)]

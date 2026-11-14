@@ -50,7 +50,11 @@ internal class SeekCoverAction(BotOwner bot) : BotAction(bot, nameof(SeekCoverAc
     public override void OnSteeringTicked()
     {
         Enemy enemy = Bot.GoalEnemy;
-        if (!Shoot.ShootAnyVisibleEnemies(enemy) && !Bot.Suppression.TrySuppressAnyEnemy(enemy, Bot.EnemyController.KnownEnemies))
+        if (
+            !Shoot.ShootAnyVisibleEnemies(enemy)
+            && !Bot.ShotReaction.TryFightOnFire(enemy)
+            && !Bot.Suppression.TrySuppressAnyEnemy(enemy, Bot.EnemyController.KnownEnemies)
+        )
         {
             Bot.Aim.LoseAimTarget();
             Bot.Suppression.ResetSuppressing();
