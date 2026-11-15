@@ -975,6 +975,46 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public bool ShotSquadAlertEnabled = true;
 
     [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Gun Abandon Enabled")]
+    [Description("A bot on (or running to) a mounted gun that is shot at by an unseen shooter checks the direction of the shot. Shooter inside the gun's firing sector: the bot stays and answers from the gun. Shooter outside the sector: it leaves the gun and reacts as any other bot (Cover or Fight roll). Off = vanilla behaviour (the gun layer outranks the reaction and the bot stays).")]
+    public bool ShotStationaryEnabled = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Gun Hold Off Time")]
+    [Description("Seconds a bot that left its mounted gun because of a shot is kept off it (vanilla would send it back after 45-60 s).")]
+    [MinMax(0f, 1800f, 1f)]
+    public float ShotStationaryHold = 300f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogue Alert Enabled")]
+    [Description("When a Rogue is hit by a shooter it cannot see, the other Rogues within the Rogue Alert Range get the vague shot area and take Cover (staggered by up to Rogue Alert Delay). A Rogue on a mounted gun whose sector covers that area stays on the gun. Needs Mounted Gun Abandon Enabled for the gun part.")]
+    public bool ShotRogueAlertEnabled = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogue Alert Range")]
+    [Description("Rogues farther than this (meters) from the hit Rogue are not alerted.")]
+    [MinMax(20f, 1000f, 1f)]
+    public float ShotRogueAlertRange = 100f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogue Alert Chance")]
+    [Description("Chance per Rogue within the Rogue Alert Range that it takes the alert (rolled once per Rogue per hit). 0 = nobody, 1 = every Rogue in range.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotRogueAlertChance = 0.6f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogue Alert Delay")]
+    [Description("Each alerted Rogue reacts after a random delay from 0 to this many seconds, so they do not all move on the same frame.")]
+    [MinMax(0f, 10f, 10f)]
+    public float ShotRogueAlertDelayMax = 4f;
+
+    [DataMember]
     [Category("Shot Reaction/Grenades")]
     [Name("Grenades Enabled")]
     [Description("A bot that holds cover after a hide may throw a grenade at the vague shot area first (before it retreats, fights on from cover, investigates, or starts an ambush). Uses SAIN's own throw logic and its safety checks (not while running, friendlies close, range, needs a grenade). Off = the reaction never throws.")]

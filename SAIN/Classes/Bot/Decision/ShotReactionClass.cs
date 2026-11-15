@@ -390,6 +390,14 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         float now = Time.time;
+        if (hit)
+        {
+            AlertRogues(enemy, now);
+        }
+        if (TryStationaryGate(enemy, hit, now))
+        {
+            return;
+        }
         _safetyBeforeShot = Safety(now, true);
         _lastThreatTime = now;
         _safetyCacheTime = -999f;
@@ -439,6 +447,150 @@ public class ShotReactionClass : BotComponentClassBase
         {
             AlertSquad(enemy, now);
         }
+    }
+
+    // ---- Mounted guns (Rogues) ----
+
+    /// <summary>True while this bot has left its mounted gun because of a shot: the vanilla gun layer must not take it back (see StationaryPatches).</summary>
+    public bool StationaryBlocked
+    {
+        get { return Time.time < _stationaryBlockUntil; }
+    }
+
+    private BotStationaryWeaponData StationaryData
+    {
+        get { return Bot.BotOwner?.WeaponManager?.Stationary; }
+    }
+
+    /// <summary>The bot is on a mounted gun, or on its way to one.</summary>
+    private bool OnStationary()
+    {
+        BotStationaryWeaponData stationary = StationaryData;
+        return !StationaryBlocked && stationary != null && stationary.CurLink != null && (stationary.Taken || stationary.WantToTake);
+    }
+
+    /// <summary>
+    /// A shot at a bot on a mounted gun. From inside the gun's sector the bot stays and the gun answers (true = no reaction roll);
+    /// from outside it the gun is useless, the bot leaves it and reacts like any other bot (false = go on to the roll).
+    /// </summary>
+    private bool TryStationaryGate(Enemy enemy, bool hit, float now)
+    {
+        if (!GlobalSettings.Fork.ShotStationaryEnabled || !OnStationary())
+        {
+            return false;
+        }
+        BotStationaryWeaponData stationary = StationaryData;
+        // The direction of a shot is known to the bot (not the distance): the true shooter position is used for the sector test.
+        if (stationary.IsEnemyAtSector(stationary.CurLink, enemy.EnemyPosition))
+        {
+            if (now >= _nextStationaryLog)
+            {
+                _nextStationaryLog = now + 3f;
+                LogEvent($"{(hit ? "hit" : "bullet")} from inside the sector of the mounted gun: stays on the gun, no reaction roll");
+            }
+            return true;
+        }
+        AbandonStationary(stationary, now, hit ? "hit" : "bullet");
+        return false;
+    }
+
+    private void AbandonStationary(BotStationaryWeaponData stationary, float now, string what)
+    {
+        float hold = Mathf.Max(GlobalSettings.Fork.ShotStationaryHold, 0f);
+        _stationaryBlockUntil = now + hold;
+        if (stationary.Taken)
+        {
+            stationary.DropCurWeapon(true, true);
+        }
+        else if (stationary.CurLink != null)
+        {
+            stationary.WantToTake = false;
+            stationary.SetCurLink(null);
+        }
+        LogEvent($"{what} from outside the sector of the mounted gun: leaves the post (kept off it for {hold:0} s)");
+    }
+
+    /// <summary>A Rogue was hit by an unseen shooter: every other Rogue in range learns the vague area (staggered) and takes cover, unless its mounted gun covers that area.</summary>
+    private void AlertRogues(Enemy enemy, float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (!fork.ShotRogueAlertEnabled || Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec || _vaguePositionTime <= 0f || now - _lastRogueAlertTime < 5f)
+        {
+            return;
+        }
+        BotManagerComponent manager = BotManagerComponent.Instance;
+        if (manager?.Bots == null)
+        {
+            return;
+        }
+        _lastRogueAlertTime = now;
+        float rangeSqr = fork.ShotRogueAlertRange * fork.ShotRogueAlertRange;
+        int alerted = 0;
+        foreach (BotComponent other in manager.Bots.Values)
+        {
+            if (other == null || other == Bot || other.BotOwner == null || other.BotOwner.IsDead || other.ShotReaction == null)
+            {
+                continue;
+            }
+            if (other.Info.Profile.WildSpawnType != WildSpawnType.exUsec || (other.Position - Bot.Position).sqrMagnitude > rangeSqr)
+            {
+                continue;
+            }
+            if (Random.value >= fork.ShotRogueAlertChance)
+            {
+                continue;
+            }
+            Enemy otherEnemy = other.EnemyController.GetEnemy(enemy.EnemyProfileId, true);
+            if (otherEnemy != null)
+            {
+                other.ShotReaction.QueueRogueAlert(otherEnemy, _vaguePosition, Bot.name, Random.Range(0f, fork.ShotRogueAlertDelayMax));
+                alerted++;
+            }
+        }
+        LogEvent($"rogue alert: {alerted} other Rogue(s) within {fork.ShotRogueAlertRange:0} m take the alert (chance {fork.ShotRogueAlertChance:0.00} each)");
+    }
+
+    public void QueueRogueAlert(Enemy enemy, Vector3 area, string fromName, float delay)
+    {
+        if (!Enabled || _pendingAlertEnemy != null)
+        {
+            return;
+        }
+        _pendingAlertEnemy = enemy;
+        _pendingAlertArea = area;
+        _pendingAlertFrom = fromName;
+        _pendingAlertTime = Time.time + delay;
+    }
+
+    private void ProcessPendingRogueAlert(float now)
+    {
+        if (_pendingAlertEnemy == null || now < _pendingAlertTime)
+        {
+            return;
+        }
+        Enemy enemy = _pendingAlertEnemy;
+        _pendingAlertEnemy = null;
+        if (!Enemy.IsEnemyActive(enemy) || !AppliesTo(enemy) || Outcome != EShotReaction.None || Relocating || now < _nextRollTime)
+        {
+            return;
+        }
+        ForkSettings fork = GlobalSettings.Fork;
+        // A little error on top, so a mate never knows more than the Rogue that was hit.
+        Vector2 offset = Random.insideUnitCircle * 10f;
+        RememberVaguePosition(_pendingAlertArea + new Vector3(offset.x, 0f, offset.y));
+        if (fork.ShotStationaryEnabled && OnStationary())
+        {
+            BotStationaryWeaponData stationary = StationaryData;
+            if (stationary.IsEnemyAtSector(stationary.CurLink, _vaguePosition))
+            {
+                LogEvent($"rogue alert from {_pendingAlertFrom}: the shot area is inside the sector of the mounted gun, stays on the gun");
+                return;
+            }
+            AbandonStationary(stationary, now, "rogue alert");
+        }
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        LogEvent($"rogue alert from {_pendingAlertFrom}: Cover");
+        Apply(enemy, EShotReaction.Cover, enemy.RealDistance / reach, now, fork);
     }
 
     /// <summary>
@@ -2065,6 +2217,7 @@ public class ShotReactionClass : BotComponentClassBase
     public override void ManualUpdate()
     {
         float now = Time.time;
+        ProcessPendingRogueAlert(now);
         TryProximityInterrupt(now);
         LogCloseDiagnostics(now);
         // Safety net: the decision hook only runs when this shooter is the bot's chosen enemy and nothing earlier in the decision order wins
@@ -2483,6 +2636,13 @@ public class ShotReactionClass : BotComponentClassBase
         }
     }
 
+    private float _stationaryBlockUntil;
+    private float _nextStationaryLog;
+    private float _lastRogueAlertTime = -999f;
+    private Enemy _pendingAlertEnemy;
+    private Vector3 _pendingAlertArea;
+    private string _pendingAlertFrom;
+    private float _pendingAlertTime;
     private Enemy _enemy;
     private float _noCoverSince = -1f;
     private float _lastNoCoverCall;
