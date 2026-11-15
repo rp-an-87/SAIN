@@ -6,6 +6,7 @@ using RootMotion.FinalIK;
 using SAIN.Components;
 using SAIN.Components.PlayerComponentSpace;
 using SAIN.Helpers;
+using SAIN.Patches.Generic;
 using SAIN.Preset.Shared.BotSettings.SAINSettings.Categories;
 using SAIN.Preset.Shared.GlobalSettings;
 using SAIN.SAINComponent.Classes.EnemyClasses;
@@ -180,6 +181,9 @@ internal class AimOffsetPatch : ModulePatch
         Vector3 aimOffset = __instance._offsetStandart;
         Vector3 realTargetPoint = __instance.RealTargetPoint;
         Vector3 result = realTargetPoint + (aimOffset * aimUpgradeByTime);
+
+        // Fork: a mounted grenade launcher gets extra scatter that grows with the distance.
+        result += MountedHelpers.GrenadeScatter(__instance._owner, result);
 
         // Fork: only the head is shootable and the head rules declined it: extra aim error, so the peeking head is rarely hit.
         if (SAINEnableClass.GetSAIN(__instance._owner.ProfileId, out BotComponent bot) && bot.GoalEnemy?.AimTarget != null)

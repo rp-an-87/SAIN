@@ -148,6 +148,8 @@ public static class EnemyGainSightClass
             closeSpotMod = fork.ShotCloseSpotCoef;
         }
 
+        float mountedMod = MountedSpotMod(enemy);
+
         float notLookMod = 1f;
         if (!enemy.IsAI)
         {
@@ -168,6 +170,7 @@ public static class EnemyGainSightClass
             * notLookMod
             * unknownMod
             * closeSpotMod
+            * mountedMod
             * poseMod;
 
         //if (enemy.EnemyPlayer.IsYourPlayer)
@@ -189,6 +192,22 @@ public static class EnemyGainSightClass
         //}
 
         return result;
+    }
+
+    /// <summary>Fork: a Rogue on a mounted gun spots a player inside the Rogue attack zone faster (it never learns the position from this).</summary>
+    private static float MountedSpotMod(Enemy enemy)
+    {
+        float coef = SAINPlugin.LoadedPreset.GlobalSettings.Fork.RogueMountedSpotCoef;
+        if (coef >= 1f || enemy.Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec)
+        {
+            return 1f;
+        }
+        var stationary = enemy.Bot.BotOwner?.WeaponManager?.Stationary;
+        if (stationary == null || !stationary.Taken)
+        {
+            return 1f;
+        }
+        return enemy.EnemyPlayer?.AIData?.PlaceInfo?.AtrZone == true ? coef : 1f;
     }
 
     private static float PoseModifier(Enemy enemy)

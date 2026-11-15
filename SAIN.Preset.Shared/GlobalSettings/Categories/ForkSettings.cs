@@ -1005,14 +1005,14 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Rogue Alert Range")]
     [Description("Rogues farther than this (meters) from the hit Rogue are not alerted.")]
     [MinMax(20f, 1000f, 1f)]
-    public float ShotRogueAlertRange = 100f;
+    public float ShotRogueAlertRange = 300f;
 
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]
     [Name("Rogue Alert Chance")]
     [Description("Chance per Rogue within the Rogue Alert Range that it takes the alert (rolled once per Rogue per hit). 0 = nobody, 1 = every Rogue in range.")]
     [MinMax(0f, 1f, 100f)]
-    public float ShotRogueAlertChance = 0.6f;
+    public float ShotRogueAlertChance = 0.8f;
 
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]
@@ -1032,6 +1032,87 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Rogues: Limited Hit Broadcast")]
     [Description("Vanilla makes every Rogue on the map take the shooter of any hit Rogue as an enemy, whatever the distance. On = only Rogues within the Rogue Alert Range of the hit Rogue, each with the Rogue Alert Chance, take it (the Rogue itself always does). Off = vanilla.")]
     public bool RogueLimitedBroadcast = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Guns: Known Position Only")]
+    [Description("Vanilla mounted guns (machine guns, grenade launchers) aim and suppress at the player's TRUE live position even when the Rogue has not seen the player. On = they use the last position the Rogue actually knew, plus an error (Mounted Aim Error), and do not start suppression without knowing the player. Off = vanilla.")]
+    public bool RogueMountedKnownPosition = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Guns: Aim Error")]
+    [Description("Error radius (meters) around the last known position that a mounted gun aims or suppresses at (re-rolled every 3 s).")]
+    [MinMax(0f, 50f, 1f)]
+    public float RogueMountedAimError = 8f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Guns: Spot Speed In Zone")]
+    [Description("Vision speed multiplier for a Rogue on a mounted gun against a player inside the Rogue attack zone: 0.5 = twice as fast to spot, 1 = off. It only speeds up spotting, the player's position is not given away.")]
+    [MinMax(0.1f, 1f, 100f)]
+    public float RogueMountedSpotCoef = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogue Reports: Delayed")]
+    [Description("Vanilla gives every Rogue a spotting Rogue's report of the player (exact position) at once, at any distance. On = each Rogue gets it after a delay (min to max seconds plus travel time per meter), and only inside the report range.")]
+    public bool RogueReportDelayed = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogue Reports: Delay Min")]
+    [Description("Minimum seconds before a Rogue receives another Rogue's enemy report.")]
+    [MinMax(0f, 30f, 10f)]
+    public float RogueReportDelayMin = 2f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogue Reports: Delay Max")]
+    [Description("Maximum base seconds before a Rogue receives another Rogue's enemy report.")]
+    [MinMax(0f, 60f, 10f)]
+    public float RogueReportDelayMax = 6f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogue Reports: Delay Per Meter")]
+    [Description("Extra seconds per meter between the reporting Rogue and the receiving Rogue (0.01 = 5 s over 500 m).")]
+    [MinMax(0f, 0.1f, 1000f)]
+    public float RogueReportDelayPerMeter = 0.01f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogue Reports: Range")]
+    [Description("Rogues farther than this (meters) from the reporting Rogue never receive its report. 0 = the whole map.")]
+    [MinMax(0f, 2000f, 1f)]
+    public float RogueReportRange = 0f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Grenade Launcher: Scatter")]
+    [Description("Mounted grenade launchers (AGS) get extra aim error that grows with the distance to the target, so a launcher far away lands its grenades well off the player. Machine guns are not affected. Off = vanilla.")]
+    public bool GrenadeLauncherScatter = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Grenade Launcher: Scatter Start Distance")]
+    [Description("Distance (meters) from which the grenade launcher scatter starts to grow.")]
+    [MinMax(0f, 500f, 1f)]
+    public float GrenadeScatterStart = 100f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Grenade Launcher: Scatter Per Meter")]
+    [Description("Scatter radius (meters at the target) added per meter beyond the start distance (0.05 = 25 m of radius at 600 m with a 100 m start).")]
+    [MinMax(0f, 0.5f, 1000f)]
+    public float GrenadeScatterPerMeter = 0.05f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Grenade Launcher: Scatter Max")]
+    [Description("Largest scatter radius (meters at the target).")]
+    [MinMax(0f, 200f, 1f)]
+    public float GrenadeScatterMax = 60f;
 
     [DataMember]
     [Category("Shot Reaction/Grenades")]

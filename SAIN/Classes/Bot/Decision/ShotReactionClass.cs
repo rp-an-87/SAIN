@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using EFT;
+using EFT.Ballistics;
 using EFT.InventoryLogic;
 using SAIN.Components;
 using SAIN.Models.Enums;
@@ -154,6 +155,24 @@ public class ShotReactionClass : BotComponentClassBase
     {
         // Everything is event driven or evaluated when asked; ManualUpdate only runs the diagnostic trace (early return when idle).
         CanEverTick = true;
+    }
+
+    public override void Init()
+    {
+        base.Init();
+        if (Bot.Player != null)
+        {
+            Bot.Player.OnPlayerDead += OnOwnDeath;
+        }
+    }
+
+    public override void Dispose()
+    {
+        if (Bot.Player != null)
+        {
+            Bot.Player.OnPlayerDead -= OnOwnDeath;
+        }
+        base.Dispose();
     }
 
     /// <summary>True if the fork's shot reaction is switched on for this bot (master switch and brain filter).</summary>
@@ -545,6 +564,66 @@ public class ShotReactionClass : BotComponentClassBase
             }
         }
         LogEvent($"rogue alert ({(hit ? "hit" : "bullet")}): {alerted} other Rogue(s) within {fork.ShotRogueAlertRange:0} m take the alert (chance {fork.ShotRogueAlertChance:0.00} each)");
+    }
+
+    /// <summary>A Rogue was killed (an instant kill never reaches the hit reaction): the other Rogues get the alert as for a hit, with a vague area around the killer.</summary>
+    private void OnOwnDeath(Player player, IPlayer lastAggressor, DamageInfo lastDamageInfo, EBodyPart lastBodyPart)
+    {
+        try
+        {
+            ForkSettings fork = GlobalSettings.Fork;
+            if (!fork.ShotRogueAlertEnabled || lastAggressor == null || Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec)
+            {
+                return;
+            }
+            Enemy enemy = Bot.EnemyController?.GetEnemy(lastAggressor.ProfileId, false);
+            if (enemy == null || (fork.ShotReactionPlayerOnly && enemy.EnemyPlayer?.IsYourPlayer != true))
+            {
+                return;
+            }
+            Vector3 killer = lastAggressor.Position;
+            float distance = (killer - Bot.Position).magnitude;
+            float radius = Mathf.Max(Mathf.Min(distance * fork.ShotPositionErrorPerMeter * fork.ShotHitErrorFactor, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
+            Vector2 offset = Random.insideUnitCircle * radius;
+            RememberVaguePosition(killer + new Vector3(offset.x, 0f, offset.y));
+            _lastRogueAlertTime = -999f;
+            LogEvent($"killed by {enemy.EnemyName} from {distance:0} m");
+            AlertRogues(enemy, true, Time.time);
+        }
+        catch (System.Exception ex)
+        {
+            LogEvent($"death alert failed: {ex.Message}");
+        }
+    }
+
+    private struct PendingReport
+    {
+        public IPlayer Enemy;
+        public Vector3 Position;
+        public Vector3 WeaponRoot;
+        public float Time;
+    }
+
+    private readonly List<PendingReport> _reports = [];
+
+    /// <summary>Another Rogue's enemy report is delivered later (see RogueReport_Patch).</summary>
+    public void QueueReport(IPlayer enemy, Vector3 position, Vector3 weaponRoot, float deliverAt)
+    {
+        _reports.Add(new PendingReport { Enemy = enemy, Position = position, WeaponRoot = weaponRoot, Time = deliverAt });
+    }
+
+    private void ProcessReports(float now)
+    {
+        for (int i = _reports.Count - 1; i >= 0; i--)
+        {
+            PendingReport report = _reports[i];
+            if (now < report.Time)
+            {
+                continue;
+            }
+            _reports.RemoveAt(i);
+            Bot.BotOwner?.BotsGroup?.SetEnemyPos(report.Enemy, report.Position, report.WeaponRoot, EEnemyPartVisibleType.Sence);
+        }
     }
 
     public void QueueRogueAlert(Enemy enemy, Vector3 area, string fromName, float delay)
@@ -2271,6 +2350,7 @@ public class ShotReactionClass : BotComponentClassBase
     {
         float now = Time.time;
         ProcessPendingRogueAlert(now);
+        ProcessReports(now);
         TryProximityInterrupt(now);
         TryOtherEnemyInterrupt(now);
         LogCloseDiagnostics(now);
