@@ -390,10 +390,7 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         float now = Time.time;
-        if (hit)
-        {
-            AlertRogues(enemy, now);
-        }
+        AlertRogues(enemy, hit, now);
         if (TryStationaryGate(enemy, hit, now))
         {
             return;
@@ -511,10 +508,10 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>A Rogue was hit by an unseen shooter: every other Rogue in range learns the vague area (staggered) and takes cover, unless its mounted gun covers that area.</summary>
-    private void AlertRogues(Enemy enemy, float now)
+    private void AlertRogues(Enemy enemy, bool hit, float now)
     {
         ForkSettings fork = GlobalSettings.Fork;
-        if (!fork.ShotRogueAlertEnabled || Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec || _vaguePositionTime <= 0f || now - _lastRogueAlertTime < 5f)
+        if (!fork.ShotRogueAlertEnabled || Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec || now - _vaguePositionTime > VAGUE_POSITION_MAX_AGE || now - _lastRogueAlertTime < 5f)
         {
             return;
         }
@@ -547,7 +544,7 @@ public class ShotReactionClass : BotComponentClassBase
                 alerted++;
             }
         }
-        LogEvent($"rogue alert: {alerted} other Rogue(s) within {fork.ShotRogueAlertRange:0} m take the alert (chance {fork.ShotRogueAlertChance:0.00} each)");
+        LogEvent($"rogue alert ({(hit ? "hit" : "bullet")}): {alerted} other Rogue(s) within {fork.ShotRogueAlertRange:0} m take the alert (chance {fork.ShotRogueAlertChance:0.00} each)");
     }
 
     public void QueueRogueAlert(Enemy enemy, Vector3 area, string fromName, float delay)

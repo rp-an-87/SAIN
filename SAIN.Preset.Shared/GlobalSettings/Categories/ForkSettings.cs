@@ -997,7 +997,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]
     [Name("Rogue Alert Enabled")]
-    [Description("When a Rogue is hit by a shooter it cannot see, the other Rogues within the Rogue Alert Range get the vague shot area and take Cover (staggered by up to Rogue Alert Delay). A Rogue on a mounted gun whose sector covers that area stays on the gun. Needs Mounted Gun Abandon Enabled for the gun part.")]
+    [Description("When a Rogue is hit by, or a bullet passes close to it from, a shooter it cannot see, the other Rogues within the Rogue Alert Range get the vague shot area and take Cover (staggered by up to Rogue Alert Delay). A Rogue on a mounted gun whose sector covers that area stays on the gun. Needs Mounted Gun Abandon Enabled for the gun part.")]
     public bool ShotRogueAlertEnabled = true;
 
     [DataMember]
