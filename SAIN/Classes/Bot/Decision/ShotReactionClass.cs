@@ -318,9 +318,8 @@ public class ShotReactionClass : BotComponentClassBase
         }
         _lastDegradeTime = now;
 
-        float concealment = ConcealmentErrorFactor(enemy.EnemyPlayer);
-        float radius = distance * fork.ShotPositionErrorPerMeter * (hit ? fork.ShotHitErrorFactor : 1f) * concealment;
-        radius = Mathf.Max(Mathf.Min(radius, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
+        float uncertainty = ComputeUncertainty(enemy.EnemyPlayer, distance, hit);
+        float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = Random.insideUnitCircle * radius;
         Vector3 point = enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y);
         if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, radius * 0.5f), NavMesh.AllAreas))
@@ -328,7 +327,7 @@ public class ShotReactionClass : BotComponentClassBase
             point = navHit.position;
         }
         // Never the shooter's exact position: if there is no navmesh near the offset point, the raw offset point is the vague area.
-        RememberVaguePosition(point);
+        RememberVaguePosition(point, uncertainty);
         return point;
     }
 
@@ -351,13 +350,72 @@ public class ShotReactionClass : BotComponentClassBase
         {
             factor *= fork.ShotSuppressedErrorFactor;
         }
+        if (fork.ShotBushErrorFactor != 1f && InBush(shooter))
+        {
+            factor *= fork.ShotBushErrorFactor;
+        }
+        if (fork.ShotTracerErrorFactor != 1f && _tracerTimes.TryGetValue(shooter.ProfileId, out float tracerTime) && Time.time - tracerTime < TRACER_MEMORY)
+        {
+            factor *= fork.ShotTracerErrorFactor;
+        }
         return factor;
     }
 
-    private void RememberVaguePosition(Vector3 position)
+    private const float TRACER_MEMORY = 3f;
+    private static readonly Dictionary<string, float> _tracerTimes = [];
+    private static readonly Collider[] _bushColliders = new Collider[4];
+    private static int _bushMask = -1;
+
+    /// <summary>A tracer round of the shooter flew past or landed near a bot: for a short while its position is easier to place.</summary>
+    public static void NoteTracer(Shot bullet)
+    {
+        IPlayer shooter = bullet?.Player?.iPlayer;
+        if (shooter != null && bullet.Ammo is Ammo ammo && ammo.AmmoTemplate != null && ammo.AmmoTemplate.Tracer)
+        {
+            _tracerTimes[shooter.ProfileId] = Time.time;
+        }
+    }
+
+    /// <summary>The shooter stands in a bush: foliage colliders around its chest.</summary>
+    private static bool InBush(IPlayer shooter)
+    {
+        if (_bushMask < 0)
+        {
+            _bushMask = 1 << LayerMask.NameToLayer("Foliage");
+        }
+        return Physics.OverlapSphereNonAlloc(shooter.Position + Vector3.up * 0.6f, 0.8f, _bushColliders, _bushMask) > 0;
+    }
+
+    /// <summary>
+    /// How unsure a bot is where a shot came from (meters, uncapped): distance x error per meter x hit factor x concealment (prone, suppressed) x weather x light.
+    /// The guessed position's error radius is this clamped to the position error cap; the uncertainty itself feeds the decisions (fight less, investigate less, mounted guns cannot pinpoint).
+    /// </summary>
+    public static float ComputeUncertainty(IPlayer shooter, float distance, bool hit)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float uncertainty = distance * fork.ShotPositionErrorPerMeter * (hit ? fork.ShotHitErrorFactor : 1f) * ConcealmentErrorFactor(shooter);
+        BotManagerComponent manager = BotManagerComponent.Instance;
+        if (manager != null)
+        {
+            float weather = manager.WeatherVision != null ? manager.WeatherVision.GainSightModifier : 1f;
+            float light = manager.TimeVision != null ? manager.TimeVision.TimeGainSightModifier : 1f;
+            uncertainty *= 1f + Mathf.Max(weather - 1f, 0f) * fork.ShotWeatherErrorStrength;
+            uncertainty *= 1f + Mathf.Max(light - 1f, 0f) * fork.ShotLightErrorStrength;
+        }
+        return uncertainty;
+    }
+
+    /// <summary>The uncertainty of the rough shot area while it is fresh (0 when there is no fresh area).</summary>
+    public float FreshUncertainty
+    {
+        get { return Time.time - _vaguePositionTime <= VAGUE_POSITION_MAX_AGE ? _vagueUncertainty : 0f; }
+    }
+
+    private void RememberVaguePosition(Vector3 position, float uncertainty)
     {
         _vaguePosition = position;
         _vaguePositionTime = Time.time;
+        _vagueUncertainty = uncertainty;
     }
 
     /// <summary>
@@ -425,13 +483,13 @@ public class ShotReactionClass : BotComponentClassBase
             Enemy mateEnemy = EnemyFor(member, shooter);
             if (mateEnemy != null)
             {
-                member.ShotReaction.QueueSquadAlert(mateEnemy, _vaguePosition, Bot.name, Random.Range(fork.ShotSquadAlertDelayMin, Mathf.Max(fork.ShotSquadAlertDelayMin, fork.ShotSquadAlertDelayMax)));
+                member.ShotReaction.QueueSquadAlert(mateEnemy, _vaguePosition, Bot.name, Random.Range(fork.ShotSquadAlertDelayMin, Mathf.Max(fork.ShotSquadAlertDelayMin, fork.ShotSquadAlertDelayMax)), _vagueUncertainty);
             }
         }
     }
 
     /// <summary>A squadmate was hit by this shooter: this bot learns the (already vague) area and rolls its own reaction as for a close bullet.</summary>
-    public void ReceiveSquadAlert(Enemy enemy, Vector3 area, string fromName)
+    public void ReceiveSquadAlert(Enemy enemy, Vector3 area, string fromName, float uncertainty)
     {
         float now = Time.time;
         if (!AppliesTo(enemy) || Outcome != EShotReaction.None || Relocating || now < _nextRollTime)
@@ -440,7 +498,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         // A little extra error, so a mate never knows more than the bot that was hit.
         Vector2 offset = Random.insideUnitCircle * 10f;
-        RememberVaguePosition(area + new Vector3(offset.x, 0f, offset.y));
+        RememberVaguePosition(area + new Vector3(offset.x, 0f, offset.y), uncertainty + 10f);
         LogEvent($"squad alert from {fromName}: rolling as for a close bullet");
         Roll(enemy, enemy.RealDistance, false, now);
     }
@@ -552,8 +610,8 @@ public class ShotReactionClass : BotComponentClassBase
         // The direction of a shot is known to the bot (not the distance): the true shooter position is used for the sector test.
         if (stationary.IsEnemyAtSector(stationary.CurLink, enemy.EnemyPosition))
         {
-            bool beyond = LauncherBeyondRange(stationary, enemy.EnemyPosition, enemy.IsVisible);
-            if (!beyond && GunCanAnswer(now))
+            string unable = UnableToAnswer(stationary, enemy.EnemyPosition, enemy.IsVisible);
+            if (unable == null && GunCanAnswer(now))
             {
                 if (now >= _nextStationaryLog)
                 {
@@ -562,8 +620,8 @@ public class ShotReactionClass : BotComponentClassBase
                 }
                 return true;
             }
-            AbandonStationary(stationary, now, beyond
-                ? $"{(hit ? "hit" : "bullet")} inside the sector, but beyond the grenade launcher's range (cannot reach)"
+            AbandonStationary(stationary, now, unable != null
+                ? $"{(hit ? "hit" : "bullet")} inside the sector, but {unable}"
                 : $"{(hit ? "hit" : "bullet")} inside the sector, but the gun has not fired for {GlobalSettings.Fork.ShotStationaryAnswerGrace:0} s (cannot answer, last trigger pull {_lastTriggerAge:0} s ago)");
             return false;
         }
@@ -653,7 +711,7 @@ public class ShotReactionClass : BotComponentClassBase
             if (otherEnemy != null)
             {
                 float delay = Random.Range(fork.ShotRogueAlertDelayMin, Mathf.Max(fork.ShotRogueAlertDelayMin, fork.ShotRogueAlertDelayMax)) + Mathf.Sqrt(awaySqr) * fork.ShotRogueAlertDelayPerMeter;
-                other.ShotReaction.QueueRogueAlert(otherEnemy, _vaguePosition, Bot.name, delay);
+                other.ShotReaction.QueueRogueAlert(otherEnemy, _vaguePosition, Bot.name, delay, _vagueUncertainty);
                 alerted++;
             }
         }
@@ -692,11 +750,11 @@ public class ShotReactionClass : BotComponentClassBase
             }
             Vector3 killer = lastAggressor.Position;
             float distance = (killer - Bot.Position).magnitude;
-            float concealment = ConcealmentErrorFactor(lastAggressor);
-            float radius = Mathf.Max(Mathf.Min(distance * fork.ShotPositionErrorPerMeter * fork.ShotHitErrorFactor * concealment, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
+            float uncertainty = ComputeUncertainty(lastAggressor, distance, true);
+            float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
             Vector2 offset = Random.insideUnitCircle * radius;
-            RememberVaguePosition(killer + new Vector3(offset.x, 0f, offset.y));
-            LogEvent($"killed by {killerName} from {distance:0} m");
+            RememberVaguePosition(killer + new Vector3(offset.x, 0f, offset.y), uncertainty);
+            LogEvent($"killed by {killerName} from {distance:0} m (uncertainty {uncertainty:0} m)");
             if (rogue)
             {
                 _lastRogueAlertTime = -999f;
@@ -711,6 +769,30 @@ public class ShotReactionClass : BotComponentClassBase
         {
             LogEvent($"death alert failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Why a gunner whose gun covers the shot still cannot answer it (null = it can): the target is beyond the launcher's range cap, or it cannot pinpoint the shooter
+    /// (the uncertainty of the rough area is above the limit of its gun). A target it sees is always answered.
+    /// </summary>
+    private string UnableToAnswer(BotStationaryWeaponData stationary, Vector3 point, bool visible)
+    {
+        if (visible || stationary.CurLink == null)
+        {
+            return null;
+        }
+        ForkSettings fork = GlobalSettings.Fork;
+        if (LauncherBeyondRange(stationary, point, false))
+        {
+            return "beyond the grenade launcher's range (cannot reach)";
+        }
+        float max = stationary.CurLink.IsGrenade() ? fork.MountedGrenadeMaxUncertainty : fork.MountedMgMaxUncertainty;
+        float uncertainty = FreshUncertainty;
+        if (max > 0f && uncertainty > max)
+        {
+            return $"too unsure where the shot came from (uncertainty {uncertainty:0} m > {max:0} m, cannot pinpoint)";
+        }
+        return null;
     }
 
     /// <summary>A grenade launcher cannot reach a point farther than the range cap unless its target is seen.</summary>
@@ -869,6 +951,13 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         bool grenade = stationary.CurLink.IsGrenade();
+        float maxUncertainty = grenade ? fork.MountedGrenadeMaxUncertainty : fork.MountedMgMaxUncertainty;
+        if (maxUncertainty > 0f && _vagueUncertainty > maxUncertainty)
+        {
+            AreaDiag(now, $"the area is too uncertain ({_vagueUncertainty:0} m > {maxUncertainty:0} m): the gun cannot pinpoint it");
+            _nextAreaSuppress = now + 10f;
+            return;
+        }
         if (grenade && LauncherBeyondRange(stationary, _vaguePosition, false))
         {
             AreaDiag(now, "the area is beyond the grenade launcher's range cap");
@@ -893,7 +982,7 @@ public class ShotReactionClass : BotComponentClassBase
         logic.SetPeriod(length);
         _nextAreaSuppress = now + length + pause;
         _answeringUntil = now + length + fork.ShotStationaryAnswerGrace;
-        LogEvent($"area suppression: {(grenade ? "grenade launcher" : "machine gun")} fires at the rough shot area ({(target.Area - Bot.Position).magnitude:0} m, error {target.Radius:0} m) for {length:0.0} s, then pauses {pause:0} s");
+        LogEvent($"area suppression: {(grenade ? "grenade launcher" : "machine gun")} fires at the rough shot area ({(target.Area - Bot.Position).magnitude:0} m, uncertainty {_vagueUncertainty:0} m, error {target.Radius:0} m) for {length:0.0} s, then pauses {pause:0} s");
     }
 
     private struct PendingReport
@@ -927,26 +1016,28 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>A squadmate's hit or kill: this bot reacts after a short delay (not at once).</summary>
-    public void QueueSquadAlert(Enemy enemy, Vector3 area, string fromName, float delay)
+    public void QueueSquadAlert(Enemy enemy, Vector3 area, string fromName, float delay, float uncertainty)
     {
         if (!Enabled || _pendingAlertEnemy != null)
         {
             return;
         }
         _pendingSquad = true;
+        _pendingAlertUncertainty = uncertainty;
         _pendingAlertEnemy = enemy;
         _pendingAlertArea = area;
         _pendingAlertFrom = fromName;
         _pendingAlertTime = Time.time + delay;
     }
 
-    public void QueueRogueAlert(Enemy enemy, Vector3 area, string fromName, float delay)
+    public void QueueRogueAlert(Enemy enemy, Vector3 area, string fromName, float delay, float uncertainty)
     {
         if (!Enabled || _pendingAlertEnemy != null)
         {
             return;
         }
         _pendingSquad = false;
+        _pendingAlertUncertainty = uncertainty;
         _pendingAlertEnemy = enemy;
         _pendingAlertArea = area;
         _pendingAlertFrom = fromName;
@@ -965,7 +1056,7 @@ public class ShotReactionClass : BotComponentClassBase
         {
             if (Enemy.IsEnemyActive(enemy))
             {
-                ReceiveSquadAlert(enemy, _pendingAlertArea, _pendingAlertFrom);
+                ReceiveSquadAlert(enemy, _pendingAlertArea, _pendingAlertFrom, _pendingAlertUncertainty);
             }
             return;
         }
@@ -976,7 +1067,7 @@ public class ShotReactionClass : BotComponentClassBase
         ForkSettings fork = GlobalSettings.Fork;
         // A little error on top, so a mate never knows more than the Rogue that was hit.
         Vector2 offset = Random.insideUnitCircle * 10f;
-        RememberVaguePosition(_pendingAlertArea + new Vector3(offset.x, 0f, offset.y));
+        RememberVaguePosition(_pendingAlertArea + new Vector3(offset.x, 0f, offset.y), _pendingAlertUncertainty + 10f);
         if (fork.ShotStationaryEnabled && OnStationary())
         {
             BotStationaryWeaponData stationary = StationaryData;
@@ -987,14 +1078,14 @@ public class ShotReactionClass : BotComponentClassBase
             }
             else
             {
-                bool beyond = inSector && LauncherBeyondRange(stationary, _vaguePosition, false);
-                if (inSector && !beyond && GunCanAnswer(now))
+                string unable = inSector ? UnableToAnswer(stationary, _vaguePosition, false) : null;
+                if (inSector && unable == null && GunCanAnswer(now))
                 {
                     LogEvent($"rogue alert from {_pendingAlertFrom}: the shot area is inside the sector of the mounted gun, stays on the gun");
                     return;
                 }
                 AbandonStationary(stationary, now, inSector
-                    ? (beyond ? "rogue alert inside the sector, but beyond the grenade launcher's range (cannot reach)" : $"rogue alert inside the sector, but the gun has not fired for {fork.ShotStationaryAnswerGrace:0} s (cannot answer, last trigger pull {_lastTriggerAge:0} s ago)")
+                    ? (unable != null ? $"rogue alert inside the sector, but {unable}" : $"rogue alert inside the sector, but the gun has not fired for {fork.ShotStationaryAnswerGrace:0} s (cannot answer, last trigger pull {_lastTriggerAge:0} s ago)")
                     : "rogue alert from outside the sector of the mounted gun");
             }
         }
@@ -1390,6 +1481,12 @@ public class ShotReactionClass : BotComponentClassBase
                 fightOn /= fork.ShotTimidPull;
                 investigate /= fork.ShotTimidPull;
                 break;
+        }
+        // Not sure where the shot came from: less going out to look for the shooter.
+        float followUncertainty = FreshUncertainty;
+        if (fork.ShotUncertaintyHigh > 0f && followUncertainty > 0f)
+        {
+            investigate *= Mathf.Lerp(1f, fork.ShotUncertaintyInvestigateMin, Mathf.InverseLerp(0f, fork.ShotUncertaintyHigh, followUncertainty));
         }
         ETagStatus health = Bot.Memory.Health.HealthStatus;
         if (health == ETagStatus.BadlyInjured || health == ETagStatus.Dying)
@@ -2830,6 +2927,13 @@ public class ShotReactionClass : BotComponentClassBase
         }
         fight *= concealment;
 
+        // The less sure the bot is where the shot came from (distance, concealment, weather, light), the less it fights.
+        float uncertainty = FreshUncertainty;
+        if (fork.ShotUncertaintyHigh > 0f && uncertainty > 0f)
+        {
+            fight *= Mathf.Lerp(1f, fork.ShotUncertaintyFightMin, Mathf.InverseLerp(0f, fork.ShotUncertaintyHigh, uncertainty));
+        }
+
         // A hit says more about where the shooter is than a bullet passing by.
         if (hit)
         {
@@ -2968,7 +3072,7 @@ public class ShotReactionClass : BotComponentClassBase
             Logger.LogInfoAlways(
                 $"[ShotReaction] t={Time.time:0.0} {Tag} ({Bot.Info.Personality}) vs {enemy.EnemyName}: dist {distance:0} m, reach {reach:0} m, hit {hit}, visible {enemy.IsVisible} ({enemy.VisibleDuration:0.0} s), look angle {lookAngle:0} deg, moving {Bot.Mover.Moving}, running {Bot.Mover.Running}, "
                     + $"weapon {weaponInfo.EWeaponClass} {weaponInfo.SelectedFireMode}{(weaponInfo.HasFireMode(Weapon.EFireMode.fullauto) ? " (full auto available)" : "")}, health {health}, bullets {Bot.BotOwner.WeaponManager?.HaveBullets} reloading {Bot.BotOwner.WeaponManager?.Reload?.Reloading}, "
-                    + $"shares cover {cover:0.00} fight {fight:0.00}{(pointBlank ? " (point blank)" : "")}{farNote} -> {outcome}{(farFightViaCover ? " (Fight via Cover)" : "")}"
+                    + $"uncertainty {uncertainty:0} m, shares cover {cover:0.00} fight {fight:0.00}{(pointBlank ? " (point blank)" : "")}{farNote} -> {outcome}{(farFightViaCover ? " (Fight via Cover)" : "")}"
             );
         }
     }
@@ -3160,5 +3264,7 @@ public class ShotReactionClass : BotComponentClassBase
     private float _lastSeenTime = -999f;
     private float _relocateEnd;
     private Vector3 _vaguePosition;
+    private float _vagueUncertainty;
+    private float _pendingAlertUncertainty;
     private float _vaguePositionTime = -999f;
 }

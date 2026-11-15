@@ -183,6 +183,14 @@ namespace SAIN.Patches.Generic
                 Log($"{bot.name}: mounted suppression not started (the player is not known)");
                 return false;
             }
+            var forkSettings = SAINPlugin.LoadedPreset.GlobalSettings.Fork;
+            float maxUncertainty = strategy._isGrenade ? forkSettings.MountedGrenadeMaxUncertainty : forkSettings.MountedMgMaxUncertainty;
+            float uncertainty = bot.ShotReaction.FreshUncertainty;
+            if (maxUncertainty > 0f && uncertainty > maxUncertainty && !goal.IsVisible)
+            {
+                Log($"{bot.name}: mounted suppression not started (too unsure where the player is: uncertainty {uncertainty:0} m > {maxUncertainty:0} m)");
+                return false;
+            }
             float cap = SAINPlugin.LoadedPreset.GlobalSettings.Fork.MountedGrenadeMaxRange;
             Vector3? known = goal.LastKnownPosition;
             if (strategy._isGrenade && cap > 0f && known != null && !goal.IsVisible && (known.Value - bot.Position).magnitude > cap)

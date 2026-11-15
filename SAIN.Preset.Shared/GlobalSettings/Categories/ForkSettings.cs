@@ -1131,7 +1131,70 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Mounted Grenade Max Range")]
     [Description("A grenade launcher does not area-suppress, and does not count as able to answer, a rough area farther than this (meters) when it does not see its target: it takes cover instead. It still fires at a target it sees. 0 = no limit.")]
     [MinMax(0f, 2000f, 1f)]
-    public float MountedGrenadeMaxRange = 450f;
+    public float MountedGrenadeMaxRange = 0f;
+
+    [DataMember]
+    [Category("Shot Reaction/Uncertainty")]
+    [Name("Weather Uncertainty Strength")]
+    [Description("How much bad weather (fog, rain) adds to the uncertainty of a guessed shot position. 0 = none; 1 = the full weather vision modifier (up to about x1.7); 0.5 = half of it.")]
+    [MinMax(0f, 2f, 100f)]
+    public float ShotWeatherErrorStrength = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Uncertainty")]
+    [Name("Light Uncertainty Strength")]
+    [Description("How much darkness adds to the uncertainty of a guessed shot position. 0 = none; 1 = the full night vision modifier (up to x3); 0.5 = half of it (up to x2).")]
+    [MinMax(0f, 2f, 100f)]
+    public float ShotLightErrorStrength = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Uncertainty")]
+    [Name("Uncertainty High")]
+    [Description("The uncertainty (meters, uncapped: distance x error per meter x hit x concealment x weather x light) at which the uncertainty effects below are at full strength. 0 = off.")]
+    [MinMax(0f, 500f, 1f)]
+    public float ShotUncertaintyHigh = 150f;
+
+    [DataMember]
+    [Category("Shot Reaction/Uncertainty")]
+    [Name("Uncertainty Fight Floor")]
+    [Description("At full uncertainty the Fight share of the first reaction roll is multiplied by this (1 = no effect): a bot that cannot tell where the shot came from fights less.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotUncertaintyFightMin = 0.3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Uncertainty")]
+    [Name("Uncertainty Investigate Floor")]
+    [Description("At full uncertainty the Investigate weight of the follow-up pick after hiding is multiplied by this (1 = no effect): a bot that cannot tell where the shot came from goes looking less.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotUncertaintyInvestigateMin = 0.4f;
+
+    [DataMember]
+    [Category("Shot Reaction/Uncertainty")]
+    [Name("Grenade Launcher Max Uncertainty")]
+    [Description("A Rogue on a grenade launcher area-suppresses only while the uncertainty of its rough shot area is at most this (meters). Above it, and without seeing its target, it cannot pinpoint the shooter: it leaves the post and takes cover. 0 = no limit.")]
+    [MinMax(0f, 500f, 1f)]
+    public float MountedGrenadeMaxUncertainty = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction/Uncertainty")]
+    [Name("Machine Gun Max Uncertainty")]
+    [Description("The same limit for a Rogue on a mounted machine gun. 0 = no limit.")]
+    [MinMax(0f, 500f, 1f)]
+    public float MountedMgMaxUncertainty = 100f;
+
+    [DataMember]
+    [Category("Shot Reaction/Uncertainty")]
+    [Name("Bush Shooter Error Factor")]
+    [Description("The uncertainty of a guessed shot position is multiplied by this when the shooter fires from inside a bush (foliage around the shooter): a common ambush, harder to place. 1 = no effect. Stacks with prone and suppressed.")]
+    [MinMax(1f, 4f, 100f)]
+    public float ShotBushErrorFactor = 1.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Uncertainty")]
+    [Name("Tracer Error Factor")]
+    [Description("The uncertainty is multiplied by this for a short while after a tracer round of the shooter flew past or landed near the bot: a tracer shows where it came from. Below 1 makes the guess better. 1 = no effect.")]
+    [MinMax(0.1f, 1f, 100f)]
+    public float ShotTracerErrorFactor = 0.6f;
 
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]
