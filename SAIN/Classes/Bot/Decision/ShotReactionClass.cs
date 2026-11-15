@@ -520,6 +520,12 @@ public class ShotReactionClass : BotComponentClassBase
             return false;
         }
         BotStationaryWeaponData stationary = StationaryData;
+        if (!stationary.Taken)
+        {
+            // Assigned to a gun (or walking to it) but not seated: it cannot answer from there, so it takes cover at once instead of walking on to the gun under fire.
+            AbandonStationary(stationary, now, $"{(hit ? "hit" : "bullet")} while the bot is not seated on its gun yet (cannot answer)");
+            return false;
+        }
         // The direction of a shot is known to the bot (not the distance): the true shooter position is used for the sector test.
         if (stationary.IsEnemyAtSector(stationary.CurLink, enemy.EnemyPosition))
         {
@@ -921,12 +927,19 @@ public class ShotReactionClass : BotComponentClassBase
         {
             BotStationaryWeaponData stationary = StationaryData;
             bool inSector = stationary.IsEnemyAtSector(stationary.CurLink, _vaguePosition);
-            if (inSector && GunCanAnswer(now))
+            if (!stationary.Taken)
             {
-                LogEvent($"rogue alert from {_pendingAlertFrom}: the shot area is inside the sector of the mounted gun, stays on the gun");
-                return;
+                AbandonStationary(stationary, now, "rogue alert while the bot is not seated on its gun yet (cannot answer)");
             }
-            AbandonStationary(stationary, now, inSector ? $"rogue alert inside the sector, but the gun has not fired for {fork.ShotStationaryAnswerGrace:0} s (cannot answer, last trigger pull {_lastTriggerAge:0} s ago)" : "rogue alert from outside the sector of the mounted gun");
+            else
+            {
+                if (inSector && GunCanAnswer(now))
+                {
+                    LogEvent($"rogue alert from {_pendingAlertFrom}: the shot area is inside the sector of the mounted gun, stays on the gun");
+                    return;
+                }
+                AbandonStationary(stationary, now, inSector ? $"rogue alert inside the sector, but the gun has not fired for {fork.ShotStationaryAnswerGrace:0} s (cannot answer, last trigger pull {_lastTriggerAge:0} s ago)" : "rogue alert from outside the sector of the mounted gun");
+            }
         }
         float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
         LogEvent($"rogue alert from {_pendingAlertFrom}: Cover");
