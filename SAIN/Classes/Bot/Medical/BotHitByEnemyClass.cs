@@ -33,6 +33,7 @@ public class BotHitByEnemyClass : BotBase
         enemy.Status.GetHit(DamageInfo);
         // Fork: a hit from an enemy the bot cannot see gives a vague area and rolls a reaction.
         Bot.ShotReaction.OnHit(enemy);
+        Bot.ShotReaction.OnOtherEnemyHit(enemy);
     }
 
     private void clearEnemy(string profileId, Enemy enemy)

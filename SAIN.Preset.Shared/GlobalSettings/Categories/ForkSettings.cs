@@ -761,6 +761,13 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Point blank & close range")]
+    [Name("Other Enemy Interrupt Distance")]
+    [Description("Any enemy other than the shooter (a scav, another PMC, a Rogue ...) that the bot can see within this distance (meters), or that hits it, ends the reaction in effect (hide, hold, investigation, retreat): normal SAIN combat takes over and deals with that enemy. 0 = off.")]
+    [MinMax(0f, 50f, 1f)]
+    public float ShotOtherEnemyInterruptDistance = 15f;
+
+    [DataMember]
+    [Category("Shot Reaction/Point blank & close range")]
     [Name("Cornered Hits")]
     [Description("A bot that hides or retreats and takes this many hits within the Cornered Window (from the Cornered Distance or closer) stops and fights. 0 = off.")]
     [MinMax(0f, 10f, 1f)]

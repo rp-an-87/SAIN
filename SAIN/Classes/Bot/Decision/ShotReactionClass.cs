@@ -2127,6 +2127,7 @@ public class ShotReactionClass : BotComponentClassBase
 
     private readonly System.Collections.Generic.Queue<float> _hitTimes = new System.Collections.Generic.Queue<float>();
     private float _nextProximityCheck;
+    private float _nextOtherEnemyCheck;
     private float _closeDiagUntil;
     private float _nextCloseDiag;
 
@@ -2193,6 +2194,61 @@ public class ShotReactionClass : BotComponentClassBase
         return false;
     }
 
+    /// <summary>
+    /// Another enemy (not the shooter) is visible close to the bot while a reaction is in effect: the reaction ends and normal combat handles it.
+    /// </summary>
+    private void TryOtherEnemyInterrupt(float now)
+    {
+        float limit = GlobalSettings.Fork.ShotOtherEnemyInterruptDistance;
+        if (limit <= 0f || now < _nextOtherEnemyCheck || !Interruptible)
+        {
+            return;
+        }
+        _nextOtherEnemyCheck = now + 0.25f;
+        var visible = Bot.EnemyController?.VisibleEnemies;
+        if (visible == null)
+        {
+            return;
+        }
+        for (int i = 0; i < visible.Count; i++)
+        {
+            Enemy other = visible[i];
+            if (other == null || other == _enemy || !Enemy.IsEnemyActive(other) || !other.IsVisible || other.RealDistance > limit)
+            {
+                continue;
+            }
+            InterruptForOtherEnemy(other, now, $"{other.EnemyName} is visible at {other.RealDistance:0} m");
+            return;
+        }
+    }
+
+    /// <summary>An enemy other than the shooter hit the bot while a reaction is in effect.</summary>
+    public void OnOtherEnemyHit(Enemy enemy)
+    {
+        if (enemy == null || enemy == _enemy || GlobalSettings.Fork.ShotOtherEnemyInterruptDistance <= 0f || !Interruptible)
+        {
+            return;
+        }
+        InterruptForOtherEnemy(enemy, Time.time, $"{enemy.EnemyName} hit the bot");
+    }
+
+    private void InterruptForOtherEnemy(Enemy other, float now, string why)
+    {
+        string state = Relocating ? "Retreat" : Outcome.ToString();
+        LogEvent($"{why} while {state} is in effect: reaction ended, normal combat");
+        if (Relocating)
+        {
+            StopRelocating(now, "another enemy is close");
+        }
+        Bot.Cover.StopAdvance();
+        Bot.Cover.ClearShotState();
+        _hitTimes.Clear();
+        if (Outcome != EShotReaction.None)
+        {
+            End("another enemy is close");
+        }
+    }
+
     /// <summary>The shooter is within the close interrupt distance without shooting (it walked up to the bot): the bot fights. Checked a few times a second.</summary>
     private void TryProximityInterrupt(float now)
     {
@@ -2219,6 +2275,7 @@ public class ShotReactionClass : BotComponentClassBase
         float now = Time.time;
         ProcessPendingRogueAlert(now);
         TryProximityInterrupt(now);
+        TryOtherEnemyInterrupt(now);
         LogCloseDiagnostics(now);
         // Safety net: the decision hook only runs when this shooter is the bot's chosen enemy and nothing earlier in the decision order wins
         // (self actions, grenade avoidance, squad decisions ...). Without this a state could stay set, and keep rules like the sprint override, for good.
