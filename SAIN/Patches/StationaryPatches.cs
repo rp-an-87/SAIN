@@ -79,7 +79,7 @@ namespace SAIN.Patches.Generic
         public static bool Patch(ExUsecLayersStrategy __instance, DamageInfo damageinfo, Player victim)
         {
             var fork = SAINPlugin.LoadedPreset.GlobalSettings.Fork;
-            if (!fork.RogueLimitedBroadcast || damageinfo.Player == null || victim == null || !victim.IsAI || victim.Profile?.Info?.Settings?.Role != WildSpawnType.exUsec)
+            if (!fork.RogueLimitedBroadcast || damageinfo.Player == null || damageinfo.Player.iPlayer?.AIData?.IsAI == true || victim == null || !victim.IsAI || victim.Profile?.Info?.Settings?.Role != WildSpawnType.exUsec)
             {
                 return true;
             }
@@ -145,7 +145,7 @@ namespace SAIN.Patches.Generic
         /// <summary>For the suppression target getters: swaps the live position for the known one (leaves it alone for bots or enemies it cannot judge).</summary>
         public static void ApplyKnown(EnemyInfo info, ref Vector3 result)
         {
-            if (info == null || !SAINPlugin.LoadedPreset.GlobalSettings.Fork.RogueMountedKnownPosition)
+            if (info == null || info.Person?.AIData?.IsAI == true || !SAINPlugin.LoadedPreset.GlobalSettings.Fork.RogueMountedKnownPosition)
             {
                 return;
             }
@@ -174,6 +174,10 @@ namespace SAIN.Patches.Generic
                 return true;
             }
             Enemy goal = bot.GoalEnemy;
+            if (goal != null && goal.IsAI)
+            {
+                return true;
+            }
             if (goal == null || !goal.EnemyKnown)
             {
                 Log($"{bot.name}: mounted suppression not started (the player is not known)");
@@ -191,6 +195,10 @@ namespace SAIN.Patches.Generic
             }
             var stationary = owner.WeaponManager?.Stationary;
             if (stationary == null || !stationary.Taken || stationary.CurLink == null || !stationary.CurLink.IsGrenade())
+            {
+                return Vector3.zero;
+            }
+            if (GetBot(owner)?.GoalEnemy?.IsAI == true)
             {
                 return Vector3.zero;
             }
@@ -222,7 +230,7 @@ namespace SAIN.Patches.Generic
         public static bool Patch(ExUsecAbstractStrategy __instance, IPlayer enemy, Vector3 enemyPos, Vector3 weaponRootLast, EEnemyPartVisibleType isVisibleOnlyBySense, BotOwner reporter)
         {
             var fork = SAINPlugin.LoadedPreset.GlobalSettings.Fork;
-            if (!fork.RogueReportDelayed)
+            if (!fork.RogueReportDelayed || enemy?.AIData?.IsAI == true)
             {
                 return true;
             }
@@ -272,7 +280,7 @@ namespace SAIN.Patches.Generic
                 __result = null;
                 return false;
             }
-            if (goal.CanShoot && goal.IsVisible)
+            if ((goal.CanShoot && goal.IsVisible) || goal.Person?.AIData?.IsAI == true)
             {
                 return true;
             }

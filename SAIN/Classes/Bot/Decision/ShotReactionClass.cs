@@ -157,20 +157,29 @@ public class ShotReactionClass : BotComponentClassBase
         CanEverTick = true;
     }
 
+    private bool _deathHooked;
+
+    private void HookDeath()
+    {
+        if (!_deathHooked && Bot.Player != null)
+        {
+            Bot.Player.OnPlayerDead += OnOwnDeath;
+            _deathHooked = true;
+        }
+    }
+
     public override void Init()
     {
         base.Init();
-        if (Bot.Player != null)
-        {
-            Bot.Player.OnPlayerDead += OnOwnDeath;
-        }
+        HookDeath();
     }
 
     public override void Dispose()
     {
-        if (Bot.Player != null)
+        if (_deathHooked && Bot.Player != null)
         {
             Bot.Player.OnPlayerDead -= OnOwnDeath;
+            _deathHooked = false;
         }
         base.Dispose();
     }
@@ -572,13 +581,25 @@ public class ShotReactionClass : BotComponentClassBase
         try
         {
             ForkSettings fork = GlobalSettings.Fork;
-            if (!fork.ShotRogueAlertEnabled || lastAggressor == null || Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec)
+            if (Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec)
             {
                 return;
             }
-            Enemy enemy = Bot.EnemyController?.GetEnemy(lastAggressor.ProfileId, false);
-            if (enemy == null || (fork.ShotReactionPlayerOnly && enemy.EnemyPlayer?.IsYourPlayer != true))
+            if (!fork.ShotRogueAlertEnabled || lastAggressor == null)
             {
+                LogEvent("killed: no alert (alert switched off or no killer)");
+                return;
+            }
+            // A Rogue that never saw the killer has no enemy record for it: one is created, the kill alert does not depend on having been seen.
+            Enemy enemy = Bot.EnemyController?.GetEnemy(lastAggressor.ProfileId, false) ?? Bot.EnemyController?.CheckAddEnemy(lastAggressor);
+            if (enemy == null)
+            {
+                LogEvent($"killed by {lastAggressor.Profile?.Nickname}: no alert (no enemy record could be made)");
+                return;
+            }
+            if (fork.ShotReactionPlayerOnly && enemy.EnemyPlayer?.IsYourPlayer != true)
+            {
+                LogEvent($"killed by {enemy.EnemyName}, not you: no alert");
                 return;
             }
             Vector3 killer = lastAggressor.Position;
@@ -2349,6 +2370,7 @@ public class ShotReactionClass : BotComponentClassBase
     public override void ManualUpdate()
     {
         float now = Time.time;
+        HookDeath();
         ProcessPendingRogueAlert(now);
         ProcessReports(now);
         TryProximityInterrupt(now);
