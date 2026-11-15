@@ -52,7 +52,9 @@ public class HearingSensor : BotComponentClassBase
     public void ReactToBulletFlyBy(AISoundData sound, float FlyByDistance)
     {
         bool underFire = FlyByDistance <= SAINPlugin.LoadedPreset.GlobalSettings.Mind.MaxUnderFireDistance;
-        if (HearingInput.IsIgnoringSounds(underFire))
+        // Fork: a Rogue on a mounted gun reacts to bullets passing further away than other bots do (shot reaction only).
+        bool mountedClose = FlyByDistance <= Bot.ShotReaction.MountedFlyByRange;
+        if (HearingInput.IsIgnoringSounds(underFire || mountedClose))
         {
             return;
         }
@@ -61,7 +63,7 @@ public class HearingSensor : BotComponentClassBase
         // Fork: a shot from an enemy the bot cannot see only gives a vague position, and rolls a reaction.
         EstimatedPosition = Bot.ShotReaction.DegradePosition(sound.Enemy, EstimatedPosition, sound.PlayerDistance, false);
         ReactToBulletFlyBy(sound, FlyByDistance, EstimatedPosition, underFire);
-        if (underFire)
+        if (underFire || mountedClose)
         {
             Bot.ShotReaction.OnShot(sound.Enemy, sound.PlayerDistance, false);
         }

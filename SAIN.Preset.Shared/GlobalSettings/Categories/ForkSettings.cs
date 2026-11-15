@@ -1003,6 +1003,20 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Close Bullet Distance")]
+    [Description("A bullet that passes within this distance (meters) of a Rogue on a mounted gun counts as a close bullet for the shot reaction (normal bots: Max Under Fire Distance, about 2 m). 0 = same as other bots.")]
+    [MinMax(0f, 50f, 1f)]
+    public float ShotMountedUnderFireDistance = 15f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Impact Range")]
+    [Description("A bullet of the player that lands within this distance (meters) of a Rogue on a mounted gun counts as a close bullet too (the Rogue sees where the shot landed). 0 = off.")]
+    [MinMax(0f, 100f, 1f)]
+    public float ShotMountedImpactRange = 25f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
     [Name("Mounted Area Suppression")]
     [Description("A Rogue on a mounted gun (grenade launcher or machine gun) that knows only a rough shot area (a hit on itself, a Rogue alert) and cannot see the player fires suppression bursts at that area, not at the player. Random: a chance roll, random burst length, random pauses, a jittering target. Off = it fires only at a player it knows.")]
     public bool MountedAreaSuppress = true;

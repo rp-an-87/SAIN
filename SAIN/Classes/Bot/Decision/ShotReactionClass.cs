@@ -370,7 +370,7 @@ public class ShotReactionClass : BotComponentClassBase
     /// The bot's enemy record for the shooter. If the bot's group does not know the shooter yet (SAIN then cannot make a record, vanilla refuses), the alert tells it,
     /// as the vanilla radio did: the shooter becomes a group enemy and the record follows.
     /// </summary>
-    private static Enemy EnemyFor(BotComponent bot, IPlayer shooter)
+    public static Enemy EnemyFor(BotComponent bot, IPlayer shooter)
     {
         Enemy found = bot.EnemyController.GetEnemy(shooter.ProfileId, true) ?? bot.EnemyController.CheckAddEnemy(shooter);
         if (found == null)
@@ -532,10 +532,10 @@ public class ShotReactionClass : BotComponentClassBase
                 }
                 return true;
             }
-            AbandonStationary(stationary, now, $"{(hit ? "hit" : "bullet")} inside the sector, but the gun has not fired for {GlobalSettings.Fork.ShotStationaryAnswerGrace:0} s (cannot answer)");
+            AbandonStationary(stationary, now, $"{(hit ? "hit" : "bullet")} inside the sector, but the gun has not fired for {GlobalSettings.Fork.ShotStationaryAnswerGrace:0} s (cannot answer, last trigger pull {_lastTriggerAge:0} s ago)");
             return false;
         }
-        AbandonStationary(stationary, now, hit ? "hit" : "bullet");
+        AbandonStationary(stationary, now, $"{(hit ? "hit" : "bullet")} from outside the sector of the mounted gun");
         return false;
     }
 
@@ -556,7 +556,9 @@ public class ShotReactionClass : BotComponentClassBase
         }
         _lastStayEvent = now;
         float lastTrigger = Bot.BotOwner.ShootData != null ? Bot.BotOwner.ShootData.LastTriggerPressd : -999f;
-        bool firing = now - lastTrigger < grace;
+        _lastTriggerAge = now - lastTrigger;
+        // A suppression burst started by TickAreaSuppression counts as answering for its length plus the grace time (the vanilla trigger time is not trusted for it).
+        bool firing = now - lastTrigger < grace || now < _answeringUntil;
         if (_stayStart < 0f || firing)
         {
             _stayStart = now;
@@ -579,7 +581,7 @@ public class ShotReactionClass : BotComponentClassBase
             stationary.WantToTake = false;
             stationary.SetCurLink(null);
         }
-        LogEvent($"{what} from outside the sector of the mounted gun: leaves the post (kept off it for {hold:0} s)");
+        LogEvent($"{what}: leaves the post (kept off it for {hold:0} s)");
     }
 
     /// <summary>A Rogue was hit by an unseen shooter: every other Rogue in range learns the vague area (staggered) and takes cover, unless its mounted gun covers that area.</summary>
@@ -678,6 +680,73 @@ public class ShotReactionClass : BotComponentClassBase
         }
     }
 
+    private void AreaDiag(float now, string why)
+    {
+        if (now >= _nextAreaDiag)
+        {
+            _nextAreaDiag = now + 5f;
+            LogEvent($"area suppression not started: {why}");
+        }
+    }
+
+    /// <summary>
+    /// Bullets near a Rogue on a mounted gun: the flyby distance that counts as "shot at" is wider than for other bots (0 = same as others).
+    /// </summary>
+    public float MountedFlyByRange
+    {
+        get
+        {
+            if (!Enabled || Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec || StationaryData?.Taken != true)
+            {
+                return 0f;
+            }
+            return GlobalSettings.Fork.ShotMountedUnderFireDistance;
+        }
+    }
+
+    /// <summary>
+    /// A Rogue that never saw the player has no enemy record, so a hit or a close bullet would be dropped before the reaction sees it.
+    /// For a Rogue (and the shooter the reaction applies to) the shot makes it aware of the shooter, which gives no position, only the record.
+    /// </summary>
+    public Enemy AwareOf(IPlayer shooter)
+    {
+        if (shooter == null || !Enabled || Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec)
+        {
+            return null;
+        }
+        if (GlobalSettings.Fork.ShotReactionPlayerOnly && (shooter as Player)?.IsYourPlayer != true)
+        {
+            return null;
+        }
+        return EnemyFor(Bot, shooter);
+    }
+
+    /// <summary>A bullet of the shooter landed at impactPosition. For a Rogue on a mounted gun, an impact close to it counts as a close bullet.</summary>
+    public void OnBulletImpact(IPlayer shooter, Vector3 impactPosition)
+    {
+        float range = GlobalSettings.Fork.ShotMountedImpactRange;
+        if (range <= 0f || shooter == null || !Enabled || Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec || StationaryData?.Taken != true)
+        {
+            return;
+        }
+        float distanceToImpact = (impactPosition - Bot.Position).magnitude;
+        float now = Time.time;
+        if (distanceToImpact > range || now < _nextImpactReact)
+        {
+            return;
+        }
+        Enemy enemy = AwareOf(shooter);
+        if (enemy == null)
+        {
+            return;
+        }
+        _nextImpactReact = now + 1f;
+        float distance = enemy.RealDistance;
+        DegradePosition(enemy, enemy.EnemyPosition, distance, false);
+        LogEvent($"bullet impact {distanceToImpact:0} m from the bot counts as a close bullet");
+        OnShot(enemy, distance, false);
+    }
+
     private sealed class AreaTarget
     {
         public Vector3 Area;
@@ -716,19 +785,30 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         BotStationaryWeaponData stationary = StationaryData;
-        if (stationary == null || !stationary.Taken || stationary.CurLink == null)
+        if (stationary == null || stationary.CurLink == null)
         {
+            return;
+        }
+        if (!stationary.Taken)
+        {
+            AreaDiag(now, "the bot is not seated on its gun yet");
             return;
         }
         BotSuppressStationary suppress = Bot.BotOwner.SuppressStationary;
         AbstractSuppressStationary logic = suppress?.CurUsingLogic;
-        if (logic == null || logic.IsInProcess)
+        if (logic == null)
+        {
+            AreaDiag(now, "the bot has no suppression logic");
+            return;
+        }
+        if (logic.IsInProcess)
         {
             return;
         }
         Enemy goal = Bot.GoalEnemy;
         if (goal != null && goal.IsVisible && goal.CanShoot)
         {
+            AreaDiag(now, "the bot sees its target (normal shooting)");
             return;
         }
         if (Random.value >= fork.MountedAreaSuppressChance)
@@ -745,12 +825,14 @@ public class ShotReactionClass : BotComponentClassBase
         if (!logic.CanStartSuppressAt(target.Area))
         {
             // Out of the gun's arc (or a spot it already wasted a burst on): not this time.
+            AreaDiag(now, "the area is outside the gun's arc or a spot it already wasted a burst on");
             _nextAreaSuppress = now + pause;
             return;
         }
         suppress.SetTargetGetter(target.Get);
         logic.SetPeriod(length);
         _nextAreaSuppress = now + length + pause;
+        _answeringUntil = now + length + fork.ShotStationaryAnswerGrace;
         LogEvent($"area suppression: {(grenade ? "grenade launcher" : "machine gun")} fires at the rough shot area ({(target.Area - Bot.Position).magnitude:0} m, error {target.Radius:0} m) for {length:0.0} s, then pauses {pause:0} s");
     }
 
@@ -844,7 +926,7 @@ public class ShotReactionClass : BotComponentClassBase
                 LogEvent($"rogue alert from {_pendingAlertFrom}: the shot area is inside the sector of the mounted gun, stays on the gun");
                 return;
             }
-            AbandonStationary(stationary, now, inSector ? $"rogue alert inside the sector, but the gun has not fired for {fork.ShotStationaryAnswerGrace:0} s (cannot answer)" : "rogue alert");
+            AbandonStationary(stationary, now, inSector ? $"rogue alert inside the sector, but the gun has not fired for {fork.ShotStationaryAnswerGrace:0} s (cannot answer, last trigger pull {_lastTriggerAge:0} s ago)" : "rogue alert from outside the sector of the mounted gun");
         }
         float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
         LogEvent($"rogue alert from {_pendingAlertFrom}: Cover");
@@ -2956,6 +3038,10 @@ public class ShotReactionClass : BotComponentClassBase
 
     private float _stationaryBlockUntil;
     private float _stayStart = -1f;
+    private float _answeringUntil;
+    private float _lastTriggerAge;
+    private float _nextAreaDiag;
+    private float _nextImpactReact;
     private float _lastStayEvent;
     private float _nextStationaryLog;
     private float _lastRogueAlertTime = -999f;

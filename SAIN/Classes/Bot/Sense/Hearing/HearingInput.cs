@@ -46,7 +46,7 @@ public class HearingInput(HearingSensor hearingSensor) : BotSubClass<HearingSens
 
     protected void OnBulletFlyBy(PlayerComponent Source, Shot Bullet)
     {
-        Enemy Enemy = Bot.EnemyController.CheckAddEnemy(Source.Player);
+        Enemy Enemy = Bot.EnemyController.CheckAddEnemy(Source.Player) ?? Bot.ShotReaction.AwareOf(Source.Player);
         if (Enemy != null)
         {
             SoundEvent SoundEvent = new(SAINSoundType.BulletImpact, Source.Position, Source, 100, 1, 999);
@@ -321,6 +321,12 @@ public class HearingInput(HearingSensor hearingSensor) : BotSubClass<HearingSens
 
     private void BulletImpacted(Shot bullet)
     {
+        // Fork: an impact near a Rogue on a mounted gun counts as a close bullet for the shot reaction.
+        if (bullet.Player?.iPlayer != null)
+        {
+            Bot.ShotReaction.OnBulletImpact(bullet.Player.iPlayer, bullet.CurrentPosition);
+        }
+
         if (IsIgnoringSounds(true))
         {
             return;

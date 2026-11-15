@@ -24,7 +24,7 @@ public class BotHitByEnemyClass : BotBase
         {
             return;
         }
-        Enemy enemy = Bot.EnemyController.GetEnemy(player.ProfileId, true);
+        Enemy enemy = Bot.EnemyController.GetEnemy(player.ProfileId, true) ?? Bot.ShotReaction.AwareOf(player);
         if (enemy == null)
         {
             return;
