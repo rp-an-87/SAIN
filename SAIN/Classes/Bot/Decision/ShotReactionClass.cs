@@ -320,7 +320,7 @@ public class ShotReactionClass : BotComponentClassBase
 
         float concealment = ConcealmentErrorFactor(enemy.EnemyPlayer);
         float radius = distance * fork.ShotPositionErrorPerMeter * (hit ? fork.ShotHitErrorFactor : 1f) * concealment;
-        radius = Mathf.Max(Mathf.Min(radius, fork.ShotPositionErrorMax * concealment), fork.ShotPositionErrorMin);
+        radius = Mathf.Max(Mathf.Min(radius, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = Random.insideUnitCircle * radius;
         Vector3 point = enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y);
         if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, radius * 0.5f), NavMesh.AllAreas))
@@ -333,7 +333,7 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>
-    /// Concealment widens every position the bots guess from a shot: a prone shooter and a suppressed weapon are harder to place (factors multiply). 1 = no concealment.
+    /// Concealment widens the position error the bots guess from a shot: a prone shooter and a suppressed weapon are harder to place (factors multiply, 1 = no concealment). It widens the error before the cap; the cap itself stays.
     /// </summary>
     public static float ConcealmentErrorFactor(IPlayer shooter)
     {
@@ -439,7 +439,7 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         // A little extra error, so a mate never knows more than the bot that was hit.
-        Vector2 offset = Random.insideUnitCircle * 10f * ConcealmentErrorFactor(enemy.EnemyPlayer);
+        Vector2 offset = Random.insideUnitCircle * 10f;
         RememberVaguePosition(area + new Vector3(offset.x, 0f, offset.y));
         LogEvent($"squad alert from {fromName}: rolling as for a close bullet");
         Roll(enemy, enemy.RealDistance, false, now);
@@ -693,7 +693,7 @@ public class ShotReactionClass : BotComponentClassBase
             Vector3 killer = lastAggressor.Position;
             float distance = (killer - Bot.Position).magnitude;
             float concealment = ConcealmentErrorFactor(lastAggressor);
-            float radius = Mathf.Max(Mathf.Min(distance * fork.ShotPositionErrorPerMeter * fork.ShotHitErrorFactor * concealment, fork.ShotPositionErrorMax * concealment), fork.ShotPositionErrorMin);
+            float radius = Mathf.Max(Mathf.Min(distance * fork.ShotPositionErrorPerMeter * fork.ShotHitErrorFactor * concealment, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
             Vector2 offset = Random.insideUnitCircle * radius;
             RememberVaguePosition(killer + new Vector3(offset.x, 0f, offset.y));
             LogEvent($"killed by {killerName} from {distance:0} m");
@@ -975,7 +975,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         ForkSettings fork = GlobalSettings.Fork;
         // A little error on top, so a mate never knows more than the Rogue that was hit.
-        Vector2 offset = Random.insideUnitCircle * 10f * ConcealmentErrorFactor(enemy.EnemyPlayer);
+        Vector2 offset = Random.insideUnitCircle * 10f;
         RememberVaguePosition(_pendingAlertArea + new Vector3(offset.x, 0f, offset.y));
         if (fork.ShotStationaryEnabled && OnStationary())
         {
