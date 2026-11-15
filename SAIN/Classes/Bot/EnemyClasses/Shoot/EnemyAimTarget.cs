@@ -23,6 +23,7 @@ public class EnemyAimTarget(EnemyData enemyData) : EnemyBase(enemyData, enemyDat
     private readonly float[] _weights = new float[_parts.Length];
 
     private EAimTargetPart? _chosen;
+    private bool _blindTorso;
     private float _repickTime;
 
     public EAimTargetPart? ChosenPart
@@ -43,25 +44,21 @@ public class EnemyAimTarget(EnemyData enemyData) : EnemyBase(enemyData, enemyDat
         }
 
         float distance = Enemy.RealDistance;
-        if (Settings.HeadOnlyAimsAtTorso && OnlyHeadCanBeShot())
-        {
-            // Only the head peeks out: the bot aims at the torso behind the cover, not at the head (a head hit then needs recoil or spread).
-            Vector3? blind = BlindTorsoPoint();
-            if (blind != null)
-            {
-                _chosen = EAimTargetPart.Chest;
-                return blind;
-            }
-        }
-
         if (distance < Settings.CloseRangeTorsoDistance)
         {
             _chosen = null;
-            return TorsoPoint();
+            _blindTorso = false;
+            Vector3? torso = TorsoPoint();
+            if (torso == null && Settings.HeadOnlyAimsAtTorso && OnlyHeadCanBeShot())
+            {
+                torso = BlindTorsoPoint();
+            }
+            return torso;
         }
 
         var parts = Enemy.Vision.EnemyParts;
-        if (_chosen == null || _repickTime < Time.time || !CanShoot(_chosen.Value))
+        bool keepBlind = _blindTorso && _chosen != null && _repickTime >= Time.time && Settings.HeadOnlyAimsAtTorso && OnlyHeadCanBeShot();
+        if (_chosen == null || _repickTime < Time.time || (!CanShoot(_chosen.Value) && !keepBlind))
         {
             if (!allowRepick)
             {
@@ -69,12 +66,24 @@ public class EnemyAimTarget(EnemyData enemyData) : EnemyBase(enemyData, enemyDat
             }
 
             _chosen = Pick(distance);
+            _blindTorso = false;
+            if (_chosen == null && Settings.HeadOnlyAimsAtTorso && OnlyHeadCanBeShot())
+            {
+                // Only the head peeks out and the head rules (aim for head, chance, weights) did not pick it: the bot aims at the torso behind the cover.
+                _chosen = EAimTargetPart.Chest;
+                _blindTorso = true;
+            }
             _repickTime = Time.time + Random.Range(Settings.RepickTimeMin, Settings.RepickTimeMax);
         }
 
         if (_chosen == null)
         {
             return null;
+        }
+
+        if (_blindTorso && !CanShoot(_chosen.Value))
+        {
+            return BlindTorsoPoint();
         }
 
         var part = parts.Parts[_chosen.Value.ToBodyPart()];
