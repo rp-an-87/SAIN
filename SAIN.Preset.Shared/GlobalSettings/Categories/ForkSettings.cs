@@ -1003,16 +1003,44 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]
     [Name("Rogue Alert Range")]
-    [Description("Rogues farther than this (meters) from the hit Rogue are not alerted.")]
-    [MinMax(20f, 1000f, 1f)]
-    public float ShotRogueAlertRange = 300f;
+    [Description("Rogues farther than this (meters) from the hit Rogue are not alerted. 0 = every Rogue on the map (the delay grows with the distance, see Rogue Alert Delay Per Meter). Also limits the vanilla hit broadcast.")]
+    [MinMax(0f, 2000f, 1f)]
+    public float ShotRogueAlertRange = 0f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogue Alert Delay Per Meter")]
+    [Description("Extra seconds per meter between the hit Rogue and an alerted Rogue (0.01 = 5 s over 500 m), added to the random 0 to Rogue Alert Delay seconds.")]
+    [MinMax(0f, 0.1f, 1000f)]
+    public float ShotRogueAlertDelayPerMeter = 0.01f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogue Alert Delay Min")]
+    [Description("Minimum seconds before an alerted Rogue reacts, even the nearest one (reaction time). The alert delay is a random value from this to Rogue Alert Delay, plus the per-meter delay.")]
+    [MinMax(0f, 10f, 10f)]
+    public float ShotRogueAlertDelayMin = 1f;
+
+    [DataMember]
+    [Category("Shot Reaction/Squad")]
+    [Name("Squad Alert Delay Min")]
+    [Description("Minimum seconds before a squadmate reacts to a squad alert (a hit or kill of a squadmate), so it does not snap into the reaction at once.")]
+    [MinMax(0f, 10f, 10f)]
+    public float ShotSquadAlertDelayMin = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Squad")]
+    [Name("Squad Alert Delay Max")]
+    [Description("Maximum seconds before a squadmate reacts to a squad alert.")]
+    [MinMax(0f, 10f, 10f)]
+    public float ShotSquadAlertDelayMax = 2f;
 
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]
     [Name("Rogue Alert Chance")]
     [Description("Chance per Rogue within the Rogue Alert Range that it takes the alert (rolled once per Rogue per hit). 0 = nobody, 1 = every Rogue in range.")]
     [MinMax(0f, 1f, 100f)]
-    public float ShotRogueAlertChance = 0.8f;
+    public float ShotRogueAlertChance = 1f;
 
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]

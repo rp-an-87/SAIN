@@ -89,7 +89,7 @@ namespace SAIN.Patches.Generic
                 return true;
             }
             float distance = (victim.Position - owner.Position).magnitude;
-            bool allowed = distance <= fork.ShotRogueAlertRange && Random.value < fork.ShotRogueAlertChance;
+            bool allowed = (fork.ShotRogueAlertRange <= 0f || distance <= fork.ShotRogueAlertRange) && Random.value < fork.ShotRogueAlertChance;
             if (fork.ShotReactionLog)
             {
                 global::SAIN.Logger.LogInfoAlways($"[RogueRadio] t={Time.time:0.0} {owner.name}: hit Rogue {victim.Profile.Nickname} was {distance:0} m away (range {fork.ShotRogueAlertRange:0}, chance {fork.ShotRogueAlertChance:0.00}): {(allowed ? "takes the shooter as an enemy" : "hears nothing")}");

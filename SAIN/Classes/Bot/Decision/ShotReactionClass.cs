@@ -384,10 +384,10 @@ public class ShotReactionClass : BotComponentClassBase
             {
                 continue;
             }
-            Enemy mateEnemy = member.EnemyController.GetEnemy(enemy.EnemyProfileId, true);
+            Enemy mateEnemy = member.EnemyController.GetEnemy(enemy.EnemyProfileId, true) ?? member.EnemyController.CheckAddEnemy(enemy.EnemyPlayer);
             if (mateEnemy != null)
             {
-                member.ShotReaction.ReceiveSquadAlert(mateEnemy, _vaguePosition, Bot.name);
+                member.ShotReaction.QueueSquadAlert(mateEnemy, _vaguePosition, Bot.name, Random.Range(fork.ShotSquadAlertDelayMin, Mathf.Max(fork.ShotSquadAlertDelayMin, fork.ShotSquadAlertDelayMax)));
             }
         }
     }
@@ -549,6 +549,7 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         _lastRogueAlertTime = now;
+        bool unlimited = fork.ShotRogueAlertRange <= 0f;
         float rangeSqr = fork.ShotRogueAlertRange * fork.ShotRogueAlertRange;
         int alerted = 0;
         foreach (BotComponent other in manager.Bots.Values)
@@ -557,7 +558,8 @@ public class ShotReactionClass : BotComponentClassBase
             {
                 continue;
             }
-            if (other.Info.Profile.WildSpawnType != WildSpawnType.exUsec || (other.Position - Bot.Position).sqrMagnitude > rangeSqr)
+            float awaySqr = (other.Position - Bot.Position).sqrMagnitude;
+            if (other.Info.Profile.WildSpawnType != WildSpawnType.exUsec || (!unlimited && awaySqr > rangeSqr))
             {
                 continue;
             }
@@ -565,41 +567,54 @@ public class ShotReactionClass : BotComponentClassBase
             {
                 continue;
             }
-            Enemy otherEnemy = other.EnemyController.GetEnemy(enemy.EnemyProfileId, true);
+            // A Rogue that never saw the shooter has no enemy record for it: one is made, the alert does not depend on having been seen.
+            Enemy otherEnemy = other.EnemyController.GetEnemy(enemy.EnemyProfileId, true) ?? other.EnemyController.CheckAddEnemy(enemy.EnemyPlayer);
             if (otherEnemy != null)
             {
-                other.ShotReaction.QueueRogueAlert(otherEnemy, _vaguePosition, Bot.name, Random.Range(0f, fork.ShotRogueAlertDelayMax));
+                float delay = Random.Range(fork.ShotRogueAlertDelayMin, Mathf.Max(fork.ShotRogueAlertDelayMin, fork.ShotRogueAlertDelayMax)) + Mathf.Sqrt(awaySqr) * fork.ShotRogueAlertDelayPerMeter;
+                other.ShotReaction.QueueRogueAlert(otherEnemy, _vaguePosition, Bot.name, delay);
                 alerted++;
             }
         }
-        LogEvent($"rogue alert ({(hit ? "hit" : "bullet")}): {alerted} other Rogue(s) within {fork.ShotRogueAlertRange:0} m take the alert (chance {fork.ShotRogueAlertChance:0.00} each)");
+        string rangeText = unlimited ? "anywhere on the map" : $"within {fork.ShotRogueAlertRange:0} m";
+        LogEvent($"rogue alert ({(hit ? "hit" : "bullet")}): {alerted} other Rogue(s) {rangeText} take the alert (chance {fork.ShotRogueAlertChance:0.00} each, delay grows with distance)");
     }
 
-    /// <summary>A Rogue was killed (an instant kill never reaches the hit reaction): the other Rogues get the alert as for a hit, with a vague area around the killer.</summary>
+    /// <summary>
+    /// A bot was killed (an instant kill never reaches the hit reaction): a Rogue alerts all other Rogues as for a hit, any other bot alerts its squadmates as for a hit,
+    /// both with a vague area around the killer.
+    /// </summary>
     private void OnOwnDeath(Player player, IPlayer lastAggressor, DamageInfo lastDamageInfo, EBodyPart lastBodyPart)
     {
         try
         {
             ForkSettings fork = GlobalSettings.Fork;
-            if (Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec)
+            bool rogue = Bot.Info.Profile.WildSpawnType == WildSpawnType.exUsec;
+            bool wanted = rogue ? fork.ShotRogueAlertEnabled : (fork.ShotSquadAlertEnabled && Enabled);
+            if (lastAggressor == null || !wanted)
             {
+                if (rogue)
+                {
+                    LogEvent("killed: no alert (alert switched off or no killer)");
+                }
                 return;
             }
-            if (!fork.ShotRogueAlertEnabled || lastAggressor == null)
-            {
-                LogEvent("killed: no alert (alert switched off or no killer)");
-                return;
-            }
-            // A Rogue that never saw the killer has no enemy record for it: one is created, the kill alert does not depend on having been seen.
+            // A bot that never saw the killer has no enemy record for it: one is created, the kill alert does not depend on having been seen.
             Enemy enemy = Bot.EnemyController?.GetEnemy(lastAggressor.ProfileId, false) ?? Bot.EnemyController?.CheckAddEnemy(lastAggressor);
             if (enemy == null)
             {
-                LogEvent($"killed by {lastAggressor.Profile?.Nickname}: no alert (no enemy record could be made)");
+                if (rogue)
+                {
+                    LogEvent($"killed by {lastAggressor.Profile?.Nickname}: no alert (no enemy record could be made)");
+                }
                 return;
             }
             if (fork.ShotReactionPlayerOnly && enemy.EnemyPlayer?.IsYourPlayer != true)
             {
-                LogEvent($"killed by {enemy.EnemyName}, not you: no alert");
+                if (rogue)
+                {
+                    LogEvent($"killed by {enemy.EnemyName}, not you: no alert");
+                }
                 return;
             }
             Vector3 killer = lastAggressor.Position;
@@ -607,9 +622,16 @@ public class ShotReactionClass : BotComponentClassBase
             float radius = Mathf.Max(Mathf.Min(distance * fork.ShotPositionErrorPerMeter * fork.ShotHitErrorFactor, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
             Vector2 offset = Random.insideUnitCircle * radius;
             RememberVaguePosition(killer + new Vector3(offset.x, 0f, offset.y));
-            _lastRogueAlertTime = -999f;
             LogEvent($"killed by {enemy.EnemyName} from {distance:0} m");
-            AlertRogues(enemy, true, Time.time);
+            if (rogue)
+            {
+                _lastRogueAlertTime = -999f;
+                AlertRogues(enemy, true, Time.time);
+            }
+            else
+            {
+                AlertSquad(enemy, Time.time);
+            }
         }
         catch (System.Exception ex)
         {
@@ -647,12 +669,27 @@ public class ShotReactionClass : BotComponentClassBase
         }
     }
 
+    /// <summary>A squadmate's hit or kill: this bot reacts after a short delay (not at once).</summary>
+    public void QueueSquadAlert(Enemy enemy, Vector3 area, string fromName, float delay)
+    {
+        if (!Enabled || _pendingAlertEnemy != null)
+        {
+            return;
+        }
+        _pendingSquad = true;
+        _pendingAlertEnemy = enemy;
+        _pendingAlertArea = area;
+        _pendingAlertFrom = fromName;
+        _pendingAlertTime = Time.time + delay;
+    }
+
     public void QueueRogueAlert(Enemy enemy, Vector3 area, string fromName, float delay)
     {
         if (!Enabled || _pendingAlertEnemy != null)
         {
             return;
         }
+        _pendingSquad = false;
         _pendingAlertEnemy = enemy;
         _pendingAlertArea = area;
         _pendingAlertFrom = fromName;
@@ -667,6 +704,14 @@ public class ShotReactionClass : BotComponentClassBase
         }
         Enemy enemy = _pendingAlertEnemy;
         _pendingAlertEnemy = null;
+        if (_pendingSquad)
+        {
+            if (Enemy.IsEnemyActive(enemy))
+            {
+                ReceiveSquadAlert(enemy, _pendingAlertArea, _pendingAlertFrom);
+            }
+            return;
+        }
         if (!Enemy.IsEnemyActive(enemy) || !AppliesTo(enemy) || Outcome != EShotReaction.None || Relocating || now < _nextRollTime)
         {
             return;
@@ -2795,6 +2840,7 @@ public class ShotReactionClass : BotComponentClassBase
     private float _stationaryBlockUntil;
     private float _nextStationaryLog;
     private float _lastRogueAlertTime = -999f;
+    private bool _pendingSquad;
     private Enemy _pendingAlertEnemy;
     private Vector3 _pendingAlertArea;
     private string _pendingAlertFrom;
