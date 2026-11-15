@@ -508,21 +508,53 @@ public class ShotReactionClass : BotComponentClassBase
         // The direction of a shot is known to the bot (not the distance): the true shooter position is used for the sector test.
         if (stationary.IsEnemyAtSector(stationary.CurLink, enemy.EnemyPosition))
         {
-            if (now >= _nextStationaryLog)
+            if (GunCanAnswer(now))
             {
-                _nextStationaryLog = now + 3f;
-                LogEvent($"{(hit ? "hit" : "bullet")} from inside the sector of the mounted gun: stays on the gun, no reaction roll");
+                if (now >= _nextStationaryLog)
+                {
+                    _nextStationaryLog = now + 3f;
+                    LogEvent($"{(hit ? "hit" : "bullet")} from inside the sector of the mounted gun: stays on the gun, no reaction roll");
+                }
+                return true;
             }
-            return true;
+            AbandonStationary(stationary, now, $"{(hit ? "hit" : "bullet")} inside the sector, but the gun has not fired for {GlobalSettings.Fork.ShotStationaryAnswerGrace:0} s (cannot answer)");
+            return false;
         }
         AbandonStationary(stationary, now, hit ? "hit" : "bullet");
         return false;
+    }
+
+    /// <summary>
+    /// A gunner whose gun covers the shot stays only while it can answer: it fired (a trigger pull, suppression included) within the grace time of the next shot or alert.
+    /// The first shot inside the arc starts the grace window; a trigger pull restarts it.
+    /// </summary>
+    private bool GunCanAnswer(float now)
+    {
+        float grace = GlobalSettings.Fork.ShotStationaryAnswerGrace;
+        if (grace <= 0f)
+        {
+            return true;
+        }
+        if (now - _lastStayEvent > 20f)
+        {
+            _stayStart = -1f;
+        }
+        _lastStayEvent = now;
+        float lastTrigger = Bot.BotOwner.ShootData != null ? Bot.BotOwner.ShootData.LastTriggerPressd : -999f;
+        bool firing = now - lastTrigger < grace;
+        if (_stayStart < 0f || firing)
+        {
+            _stayStart = now;
+            return true;
+        }
+        return now - _stayStart < grace;
     }
 
     private void AbandonStationary(BotStationaryWeaponData stationary, float now, string what)
     {
         float hold = Mathf.Max(GlobalSettings.Fork.ShotStationaryHold, 0f);
         _stationaryBlockUntil = now + hold;
+        _stayStart = -1f;
         if (stationary.Taken)
         {
             stationary.DropCurWeapon(true, true);
@@ -723,12 +755,13 @@ public class ShotReactionClass : BotComponentClassBase
         if (fork.ShotStationaryEnabled && OnStationary())
         {
             BotStationaryWeaponData stationary = StationaryData;
-            if (stationary.IsEnemyAtSector(stationary.CurLink, _vaguePosition))
+            bool inSector = stationary.IsEnemyAtSector(stationary.CurLink, _vaguePosition);
+            if (inSector && GunCanAnswer(now))
             {
                 LogEvent($"rogue alert from {_pendingAlertFrom}: the shot area is inside the sector of the mounted gun, stays on the gun");
                 return;
             }
-            AbandonStationary(stationary, now, "rogue alert");
+            AbandonStationary(stationary, now, inSector ? $"rogue alert inside the sector, but the gun has not fired for {fork.ShotStationaryAnswerGrace:0} s (cannot answer)" : "rogue alert");
         }
         float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
         LogEvent($"rogue alert from {_pendingAlertFrom}: Cover");
@@ -2838,6 +2871,8 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     private float _stationaryBlockUntil;
+    private float _stayStart = -1f;
+    private float _lastStayEvent;
     private float _nextStationaryLog;
     private float _lastRogueAlertTime = -999f;
     private bool _pendingSquad;

@@ -996,6 +996,13 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Gun Answer Grace")]
+    [Description("A gunner whose gun covers the shot stays on it only while it can answer. If it has not pulled the trigger (suppression counts) for this many seconds when the next hit, close bullet or alert reaches it, it leaves the post like a gunner the shot came outside of the arc for, and takes cover. 0 = it always stays when the shot is inside the arc.")]
+    [MinMax(0f, 30f, 10f)]
+    public float ShotStationaryAnswerGrace = 6f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
     [Name("Rogue Alert Enabled")]
     [Description("When a Rogue is hit by, or a bullet passes close to it from, a shooter it cannot see, the other Rogues within the Rogue Alert Range get the vague shot area and take Cover (staggered by up to Rogue Alert Delay). A Rogue on a mounted gun whose sector covers that area stays on the gun. Needs Mounted Gun Abandon Enabled for the gun part.")]
     public bool ShotRogueAlertEnabled = true;
