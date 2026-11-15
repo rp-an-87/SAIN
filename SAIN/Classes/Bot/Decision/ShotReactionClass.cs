@@ -366,7 +366,22 @@ public class ShotReactionClass : BotComponentClassBase
     /// <summary>
     /// A bot was hit by an unseen shooter: nearby squadmates that know the shooter and are not reacting already get the vague area and roll as for a close bullet.
     /// </summary>
-    private void AlertSquad(Enemy enemy, float now)
+    /// <summary>
+    /// The bot's enemy record for the shooter. If the bot's group does not know the shooter yet (SAIN then cannot make a record, vanilla refuses), the alert tells it,
+    /// as the vanilla radio did: the shooter becomes a group enemy and the record follows.
+    /// </summary>
+    private static Enemy EnemyFor(BotComponent bot, IPlayer shooter)
+    {
+        Enemy found = bot.EnemyController.GetEnemy(shooter.ProfileId, true) ?? bot.EnemyController.CheckAddEnemy(shooter);
+        if (found == null)
+        {
+            bot.BotOwner?.BotsGroup?.CheckAndAddEnemy(shooter, true);
+            found = bot.EnemyController.GetEnemy(shooter.ProfileId, false) ?? bot.EnemyController.CheckAddEnemy(shooter);
+        }
+        return found;
+    }
+
+    private void AlertSquad(IPlayer shooter, float now)
     {
         ForkSettings fork = GlobalSettings.Fork;
         if (!fork.ShotSquadAlertEnabled || _vaguePositionTime <= 0f || Bot.Squad?.Members == null)
@@ -384,7 +399,7 @@ public class ShotReactionClass : BotComponentClassBase
             {
                 continue;
             }
-            Enemy mateEnemy = member.EnemyController.GetEnemy(enemy.EnemyProfileId, true) ?? member.EnemyController.CheckAddEnemy(enemy.EnemyPlayer);
+            Enemy mateEnemy = EnemyFor(member, shooter);
             if (mateEnemy != null)
             {
                 member.ShotReaction.QueueSquadAlert(mateEnemy, _vaguePosition, Bot.name, Random.Range(fork.ShotSquadAlertDelayMin, Mathf.Max(fork.ShotSquadAlertDelayMin, fork.ShotSquadAlertDelayMax)));
@@ -418,7 +433,7 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         float now = Time.time;
-        AlertRogues(enemy, hit, now);
+        AlertRogues(enemy.EnemyPlayer, hit, now);
         if (TryStationaryGate(enemy, hit, now))
         {
             return;
@@ -470,7 +485,7 @@ public class ShotReactionClass : BotComponentClassBase
         Roll(enemy, distance, hit, now);
         if (hit)
         {
-            AlertSquad(enemy, now);
+            AlertSquad(enemy.EnemyPlayer, now);
         }
     }
 
@@ -568,7 +583,7 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>A Rogue was hit by an unseen shooter: every other Rogue in range learns the vague area (staggered) and takes cover, unless its mounted gun covers that area.</summary>
-    private void AlertRogues(Enemy enemy, bool hit, float now)
+    private void AlertRogues(IPlayer shooter, bool hit, float now)
     {
         ForkSettings fork = GlobalSettings.Fork;
         if (!fork.ShotRogueAlertEnabled || Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec || now - _vaguePositionTime > VAGUE_POSITION_MAX_AGE || now - _lastRogueAlertTime < 5f)
@@ -599,8 +614,8 @@ public class ShotReactionClass : BotComponentClassBase
             {
                 continue;
             }
-            // A Rogue that never saw the shooter has no enemy record for it: one is made, the alert does not depend on having been seen.
-            Enemy otherEnemy = other.EnemyController.GetEnemy(enemy.EnemyProfileId, true) ?? other.EnemyController.CheckAddEnemy(enemy.EnemyPlayer);
+            // A Rogue that never saw the shooter has no enemy record for it: the alert makes one (see EnemyFor), it does not depend on having been seen.
+            Enemy otherEnemy = EnemyFor(other, shooter);
             if (otherEnemy != null)
             {
                 float delay = Random.Range(fork.ShotRogueAlertDelayMin, Mathf.Max(fork.ShotRogueAlertDelayMin, fork.ShotRogueAlertDelayMax)) + Mathf.Sqrt(awaySqr) * fork.ShotRogueAlertDelayPerMeter;
@@ -631,21 +646,13 @@ public class ShotReactionClass : BotComponentClassBase
                 }
                 return;
             }
-            // A bot that never saw the killer has no enemy record for it: one is created, the kill alert does not depend on having been seen.
-            Enemy enemy = Bot.EnemyController?.GetEnemy(lastAggressor.ProfileId, false) ?? Bot.EnemyController?.CheckAddEnemy(lastAggressor);
-            if (enemy == null)
+            // The kill alert works from the killer alone: the victim often never saw the killer and has no enemy record for it.
+            string killerName = lastAggressor.Profile?.Nickname;
+            if (fork.ShotReactionPlayerOnly && (lastAggressor as Player)?.IsYourPlayer != true)
             {
                 if (rogue)
                 {
-                    LogEvent($"killed by {lastAggressor.Profile?.Nickname}: no alert (no enemy record could be made)");
-                }
-                return;
-            }
-            if (fork.ShotReactionPlayerOnly && enemy.EnemyPlayer?.IsYourPlayer != true)
-            {
-                if (rogue)
-                {
-                    LogEvent($"killed by {enemy.EnemyName}, not you: no alert");
+                    LogEvent($"killed by {killerName}, not you: no alert");
                 }
                 return;
             }
@@ -654,15 +661,15 @@ public class ShotReactionClass : BotComponentClassBase
             float radius = Mathf.Max(Mathf.Min(distance * fork.ShotPositionErrorPerMeter * fork.ShotHitErrorFactor, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
             Vector2 offset = Random.insideUnitCircle * radius;
             RememberVaguePosition(killer + new Vector3(offset.x, 0f, offset.y));
-            LogEvent($"killed by {enemy.EnemyName} from {distance:0} m");
+            LogEvent($"killed by {killerName} from {distance:0} m");
             if (rogue)
             {
                 _lastRogueAlertTime = -999f;
-                AlertRogues(enemy, true, Time.time);
+                AlertRogues(lastAggressor, true, Time.time);
             }
             else
             {
-                AlertSquad(enemy, Time.time);
+                AlertSquad(lastAggressor, Time.time);
             }
         }
         catch (System.Exception ex)
