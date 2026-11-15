@@ -1022,6 +1022,18 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public float ShotRogueAlertDelayMax = 4f;
 
     [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogues: No Zone Magic")]
+    [Description("Vanilla tells every Rogue in an attack zone (water treatment plant) the exact position of any player who enters the zone and marks the player as visible to them, however far away and hidden. On = that is removed: Rogues must find the player by sight and sound. Off = vanilla.")]
+    public bool RogueNoZoneMagic = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Rogues: Limited Hit Broadcast")]
+    [Description("Vanilla makes every Rogue on the map take the shooter of any hit Rogue as an enemy, whatever the distance. On = only Rogues within the Rogue Alert Range of the hit Rogue, each with the Rogue Alert Chance, take it (the Rogue itself always does). Off = vanilla.")]
+    public bool RogueLimitedBroadcast = true;
+
+    [DataMember]
     [Category("Shot Reaction/Grenades")]
     [Name("Grenades Enabled")]
     [Description("A bot that holds cover after a hide may throw a grenade at the vague shot area first (before it retreats, fights on from cover, investigates, or starts an ambush). Uses SAIN's own throw logic and its safety checks (not while running, friendlies close, range, needs a grenade). Off = the reaction never throws.")]
