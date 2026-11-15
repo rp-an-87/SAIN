@@ -529,7 +529,8 @@ public class ShotReactionClass : BotComponentClassBase
         // The direction of a shot is known to the bot (not the distance): the true shooter position is used for the sector test.
         if (stationary.IsEnemyAtSector(stationary.CurLink, enemy.EnemyPosition))
         {
-            if (GunCanAnswer(now))
+            bool beyond = LauncherBeyondRange(stationary, enemy.EnemyPosition, enemy.IsVisible);
+            if (!beyond && GunCanAnswer(now))
             {
                 if (now >= _nextStationaryLog)
                 {
@@ -538,7 +539,9 @@ public class ShotReactionClass : BotComponentClassBase
                 }
                 return true;
             }
-            AbandonStationary(stationary, now, $"{(hit ? "hit" : "bullet")} inside the sector, but the gun has not fired for {GlobalSettings.Fork.ShotStationaryAnswerGrace:0} s (cannot answer, last trigger pull {_lastTriggerAge:0} s ago)");
+            AbandonStationary(stationary, now, beyond
+                ? $"{(hit ? "hit" : "bullet")} inside the sector, but beyond the grenade launcher's range (cannot reach)"
+                : $"{(hit ? "hit" : "bullet")} inside the sector, but the gun has not fired for {GlobalSettings.Fork.ShotStationaryAnswerGrace:0} s (cannot answer, last trigger pull {_lastTriggerAge:0} s ago)");
             return false;
         }
         AbandonStationary(stationary, now, $"{(hit ? "hit" : "bullet")} from outside the sector of the mounted gun");
@@ -686,6 +689,13 @@ public class ShotReactionClass : BotComponentClassBase
         }
     }
 
+    /// <summary>A grenade launcher cannot reach a point farther than the range cap unless its target is seen.</summary>
+    private bool LauncherBeyondRange(BotStationaryWeaponData stationary, Vector3 point, bool visible)
+    {
+        float cap = GlobalSettings.Fork.MountedGrenadeMaxRange;
+        return cap > 0f && stationary.CurLink != null && stationary.CurLink.IsGrenade() && !visible && (point - Bot.Position).magnitude > cap;
+    }
+
     private void AreaDiag(float now, string why)
     {
         if (now >= _nextAreaDiag)
@@ -772,6 +782,8 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     private float _nextAreaCheck;
+    private float _areaDelayUntil = -1f;
+    private float _lastAreaActivity = -999f;
     private float _nextAreaSuppress;
 
     /// <summary>
@@ -817,16 +829,34 @@ public class ShotReactionClass : BotComponentClassBase
             AreaDiag(now, "the bot sees its target (normal shooting)");
             return;
         }
+        // After a quiet spell the first burst waits a random start delay (a gunner does not answer the first shot at once).
+        if (now - _lastAreaActivity > 45f)
+        {
+            _areaDelayUntil = now + Random.Range(fork.MountedAreaStartDelayMin, Mathf.Max(fork.MountedAreaStartDelayMin, fork.MountedAreaStartDelayMax));
+        }
+        _lastAreaActivity = now;
+        if (now < _areaDelayUntil)
+        {
+            return;
+        }
         if (Random.value >= fork.MountedAreaSuppressChance)
         {
             _nextAreaSuppress = now + Random.Range(2f, 5f);
             return;
         }
         bool grenade = stationary.CurLink.IsGrenade();
+        if (grenade && LauncherBeyondRange(stationary, _vaguePosition, false))
+        {
+            AreaDiag(now, "the area is beyond the grenade launcher's range cap");
+            _nextAreaSuppress = now + 10f;
+            return;
+        }
         float length = grenade
             ? Random.Range(fork.MountedGrenadeBurstMin, Mathf.Max(fork.MountedGrenadeBurstMin, fork.MountedGrenadeBurstMax))
             : Random.Range(fork.MountedMgBurstMin, Mathf.Max(fork.MountedMgBurstMin, fork.MountedMgBurstMax));
-        float pause = Random.Range(fork.MountedAreaCooldownMin, Mathf.Max(fork.MountedAreaCooldownMin, fork.MountedAreaCooldownMax));
+        float pause = grenade
+            ? Random.Range(fork.MountedGrenadePauseMin, Mathf.Max(fork.MountedGrenadePauseMin, fork.MountedGrenadePauseMax))
+            : Random.Range(fork.MountedAreaCooldownMin, Mathf.Max(fork.MountedAreaCooldownMin, fork.MountedAreaCooldownMax));
         var target = new AreaTarget { Area = _vaguePosition, Radius = fork.MountedAreaSuppressError };
         if (!logic.CanStartSuppressAt(target.Area))
         {
@@ -933,12 +963,15 @@ public class ShotReactionClass : BotComponentClassBase
             }
             else
             {
-                if (inSector && GunCanAnswer(now))
+                bool beyond = inSector && LauncherBeyondRange(stationary, _vaguePosition, false);
+                if (inSector && !beyond && GunCanAnswer(now))
                 {
                     LogEvent($"rogue alert from {_pendingAlertFrom}: the shot area is inside the sector of the mounted gun, stays on the gun");
                     return;
                 }
-                AbandonStationary(stationary, now, inSector ? $"rogue alert inside the sector, but the gun has not fired for {fork.ShotStationaryAnswerGrace:0} s (cannot answer, last trigger pull {_lastTriggerAge:0} s ago)" : "rogue alert from outside the sector of the mounted gun");
+                AbandonStationary(stationary, now, inSector
+                    ? (beyond ? "rogue alert inside the sector, but beyond the grenade launcher's range (cannot reach)" : $"rogue alert inside the sector, but the gun has not fired for {fork.ShotStationaryAnswerGrace:0} s (cannot answer, last trigger pull {_lastTriggerAge:0} s ago)")
+                    : "rogue alert from outside the sector of the mounted gun");
             }
         }
         float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);

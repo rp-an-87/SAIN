@@ -1047,14 +1047,14 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Mounted Grenade Burst Min")]
     [Description("Shortest suppression burst of a grenade launcher (seconds).")]
     [MinMax(1f, 30f, 10f)]
-    public float MountedGrenadeBurstMin = 4f;
+    public float MountedGrenadeBurstMin = 1f;
 
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]
     [Name("Mounted Grenade Burst Max")]
     [Description("Longest suppression burst of a grenade launcher (seconds).")]
     [MinMax(1f, 30f, 10f)]
-    public float MountedGrenadeBurstMax = 10f;
+    public float MountedGrenadeBurstMax = 3f;
 
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]
@@ -1083,6 +1083,41 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("Longest pause between two suppression bursts of the same gunner (seconds).")]
     [MinMax(0f, 120f, 10f)]
     public float MountedAreaCooldownMax = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Area Start Delay Min")]
+    [Description("After a quiet spell (45 s without suppression) a gunner waits at least this long (seconds) after it first has a rough shot area before it starts suppressing, so it does not answer your first shot at once.")]
+    [MinMax(0f, 60f, 10f)]
+    public float MountedAreaStartDelayMin = 4f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Area Start Delay Max")]
+    [Description("Longest wait before the first suppression burst after a quiet spell (seconds).")]
+    [MinMax(0f, 60f, 10f)]
+    public float MountedAreaStartDelayMax = 8f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Grenade Pause Min")]
+    [Description("Shortest pause between two suppression bursts of a grenade launcher (seconds). Machine guns use Mounted Area Pause.")]
+    [MinMax(0f, 120f, 10f)]
+    public float MountedGrenadePauseMin = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Grenade Pause Max")]
+    [Description("Longest pause between two suppression bursts of a grenade launcher (seconds).")]
+    [MinMax(0f, 120f, 10f)]
+    public float MountedGrenadePauseMax = 45f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Grenade Max Range")]
+    [Description("A grenade launcher does not area-suppress, and does not count as able to answer, a rough area farther than this (meters) when it does not see its target: it takes cover instead. It still fires at a target it sees. 0 = no limit.")]
+    [MinMax(0f, 2000f, 1f)]
+    public float MountedGrenadeMaxRange = 450f;
 
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]

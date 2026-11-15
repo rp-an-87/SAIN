@@ -183,6 +183,13 @@ namespace SAIN.Patches.Generic
                 Log($"{bot.name}: mounted suppression not started (the player is not known)");
                 return false;
             }
+            float cap = SAINPlugin.LoadedPreset.GlobalSettings.Fork.MountedGrenadeMaxRange;
+            Vector3? known = goal.LastKnownPosition;
+            if (strategy._isGrenade && cap > 0f && known != null && !goal.IsVisible && (known.Value - bot.Position).magnitude > cap)
+            {
+                Log($"{bot.name}: grenade launcher suppression not started (the player is beyond its range cap of {cap:0} m)");
+                return false;
+            }
             return true;
         }
 
@@ -213,6 +220,8 @@ namespace SAIN.Patches.Generic
             {
                 entry = (Time.time, Random.insideUnitCircle * radius);
                 _scatter[id] = entry;
+                Enemy goal = GetBot(owner)?.GoalEnemy;
+                Log($"{owner.name}: grenade launcher aims at {distance:0} m, scatter radius {radius:0} m, target visible {goal?.IsVisible == true}");
             }
             return new Vector3(entry.offset.x, 0f, entry.offset.y);
         }
