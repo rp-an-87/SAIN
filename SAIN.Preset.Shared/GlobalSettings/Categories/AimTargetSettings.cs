@@ -57,10 +57,12 @@ public class AimTargetSettings : SAINSettingsBase<AimTargetSettings>, ISAINSetti
     public float CloseRangeTorsoDistance = 2f;
 
     [DataMember]
-    [Name("Head Only Aims At Torso")]
+    [Name("Head Only Scatter Radius")]
     [Description(
         "When the head is the only part of an enemy a bot can shoot (peeking over cover), the normal head rules decide (profile Aim For Head, its chance, the Head weight). "
-            + "If they do not pick the head, the bot aims at the torso position behind the cover instead, so a head hit only happens through recoil and spread. Off = vanilla fallback (shoots the visible head)."
+            + "If they do not pick the head, the bot still aims at the visible head but with this much extra aim error: a random offset (meters, at the target) in a disc around the aim point, re-rolled every 0.3 s. "
+            + "Applies to every weapon, including semi-auto and scoped ones. 0 = off (vanilla fallback, shoots the visible head accurately)."
     )]
-    public bool HeadOnlyAimsAtTorso = true;
+    [MinMax(0f, 3f, 100f)]
+    public float HeadOnlyScatterRadius = 0.6f;
 }

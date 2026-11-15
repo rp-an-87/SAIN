@@ -23,8 +23,10 @@ public class EnemyAimTarget(EnemyData enemyData) : EnemyBase(enemyData, enemyDat
     private readonly float[] _weights = new float[_parts.Length];
 
     private EAimTargetPart? _chosen;
-    private bool _blindTorso;
+    private bool _headDeclined;
     private float _repickTime;
+    private float _scatterRollTime = -999f;
+    private Vector2 _scatterDisc;
 
     public EAimTargetPart? ChosenPart
     {
@@ -47,18 +49,21 @@ public class EnemyAimTarget(EnemyData enemyData) : EnemyBase(enemyData, enemyDat
         if (distance < Settings.CloseRangeTorsoDistance)
         {
             _chosen = null;
-            _blindTorso = false;
+            _headDeclined = false;
             Vector3? torso = TorsoPoint();
-            if (torso == null && Settings.HeadOnlyAimsAtTorso && OnlyHeadCanBeShot())
+            if (torso == null && Settings.HeadOnlyScatterRadius > 0f && OnlyHeadCanBeShot())
             {
-                torso = BlindTorsoPoint();
+                // Only the head is shootable up close: it stays the aim point, with the head-only scatter (see HeadScatter).
+                _headDeclined = true;
+                return Enemy.Vision.EnemyParts.Parts[EBodyPart.Head].ShootPoint;
             }
             return torso;
         }
 
         var parts = Enemy.Vision.EnemyParts;
-        bool keepBlind = _blindTorso && _chosen != null && _repickTime >= Time.time && Settings.HeadOnlyAimsAtTorso && OnlyHeadCanBeShot();
-        if (_chosen == null || _repickTime < Time.time || (!CanShoot(_chosen.Value) && !keepBlind))
+        // A head pick that the head rules declined stops at once when more than the head becomes shootable (the bot then aims normally).
+        bool headDeclinedOver = _headDeclined && !OnlyHeadCanBeShot();
+        if (_chosen == null || _repickTime < Time.time || !CanShoot(_chosen.Value) || headDeclinedOver)
         {
             if (!allowRepick)
             {
@@ -66,12 +71,12 @@ public class EnemyAimTarget(EnemyData enemyData) : EnemyBase(enemyData, enemyDat
             }
 
             _chosen = Pick(distance);
-            _blindTorso = false;
-            if (_chosen == null && Settings.HeadOnlyAimsAtTorso && OnlyHeadCanBeShot())
+            _headDeclined = false;
+            if (_chosen == null && Settings.HeadOnlyScatterRadius > 0f && OnlyHeadCanBeShot())
             {
-                // Only the head peeks out and the head rules (aim for head, chance, weights) did not pick it: the bot aims at the torso behind the cover.
-                _chosen = EAimTargetPart.Chest;
-                _blindTorso = true;
+                // Only the head peeks out and the head rules (aim for head, chance, weights) did not pick it: the head stays the aim point, with the head-only scatter.
+                _chosen = EAimTargetPart.Head;
+                _headDeclined = true;
             }
             _repickTime = Time.time + Random.Range(Settings.RepickTimeMin, Settings.RepickTimeMax);
         }
@@ -79,11 +84,6 @@ public class EnemyAimTarget(EnemyData enemyData) : EnemyBase(enemyData, enemyDat
         if (_chosen == null)
         {
             return null;
-        }
-
-        if (_blindTorso && !CanShoot(_chosen.Value))
-        {
-            return BlindTorsoPoint();
         }
 
         var part = parts.Parts[_chosen.Value.ToBodyPart()];
@@ -198,19 +198,36 @@ public class EnemyAimTarget(EnemyData enemyData) : EnemyBase(enemyData, enemyDat
         return true;
     }
 
-    /// <summary>The chest (or stomach) position even when no ray reaches it: where a torso shot would go.</summary>
-    private Vector3? BlindTorsoPoint()
+    /// <summary>
+    /// Extra aim error while only the head is shootable and the head rules declined it: a random offset in a disc (meters) perpendicular to the line of sight,
+    /// re-rolled every 0.3 s so each burst or tap is independent. Zero when the debuff does not apply. Mostly misses the head (it lands on the cover or past it).
+    /// </summary>
+    public Vector3 HeadScatter(Vector3 aimPoint, Vector3 origin)
     {
-        var parts = Enemy.Vision.EnemyParts.Parts;
-        if (parts.TryGetValue(EBodyPart.Chest, out var chest) && chest.Transform != null)
+        float radius = Settings.HeadOnlyScatterRadius;
+        if (!_headDeclined || radius <= 0f || !OnlyHeadCanBeShot())
         {
-            return chest.Transform.position;
+            return Vector3.zero;
         }
-        if (parts.TryGetValue(EBodyPart.Stomach, out var stomach) && stomach.Transform != null)
+        if (Time.time - _scatterRollTime > 0.3f)
         {
-            return stomach.Transform.position;
+            _scatterRollTime = Time.time;
+            _scatterDisc = Random.insideUnitCircle * radius;
         }
-        return null;
+        Vector3 direction = aimPoint - origin;
+        if (direction.sqrMagnitude < 0.01f)
+        {
+            return Vector3.zero;
+        }
+        direction.Normalize();
+        Vector3 right = Vector3.Cross(Vector3.up, direction);
+        if (right.sqrMagnitude < 0.0001f)
+        {
+            return Vector3.zero;
+        }
+        right.Normalize();
+        Vector3 up = Vector3.Cross(direction, right);
+        return right * _scatterDisc.x + up * _scatterDisc.y;
     }
 
     private Vector3? TorsoPoint()

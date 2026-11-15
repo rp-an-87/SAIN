@@ -181,6 +181,12 @@ internal class AimOffsetPatch : ModulePatch
         Vector3 realTargetPoint = __instance.RealTargetPoint;
         Vector3 result = realTargetPoint + (aimOffset * aimUpgradeByTime);
 
+        // Fork: only the head is shootable and the head rules declined it: extra aim error, so the peeking head is rarely hit.
+        if (SAINEnableClass.GetSAIN(__instance._owner.ProfileId, out BotComponent bot) && bot.GoalEnemy?.AimTarget != null)
+        {
+            result += bot.GoalEnemy.AimTarget.HeadScatter(result, __instance._owner.WeaponRoot.position);
+        }
+
         __instance.EndTargetPoint = result;
 
 #if DEBUG
