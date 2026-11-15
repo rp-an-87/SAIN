@@ -1003,6 +1003,75 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Area Suppression")]
+    [Description("A Rogue on a mounted gun (grenade launcher or machine gun) that knows only a rough shot area (a hit on itself, a Rogue alert) and cannot see the player fires suppression bursts at that area, not at the player. Random: a chance roll, random burst length, random pauses, a jittering target. Off = it fires only at a player it knows.")]
+    public bool MountedAreaSuppress = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Area Chance")]
+    [Description("Chance that an eligible gunner starts a suppression burst at each check (checks come every 1 to 1.5 s). A failed roll waits 2 to 5 s before the next.")]
+    [MinMax(0f, 1f, 100f)]
+    public float MountedAreaSuppressChance = 0.6f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Area Age")]
+    [Description("The rough shot area counts only this many seconds after the last shot, hit or alert that refreshed it (seconds).")]
+    [MinMax(5f, 120f, 1f)]
+    public float MountedAreaSuppressAreaAge = 30f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Area Error")]
+    [Description("Radius (meters) of the jitter around the rough area that the gun aims at, re-rolled every second. The area itself already has the shot position error on top.")]
+    [MinMax(0f, 60f, 1f)]
+    public float MountedAreaSuppressError = 12f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Grenade Burst Min")]
+    [Description("Shortest suppression burst of a grenade launcher (seconds).")]
+    [MinMax(1f, 30f, 10f)]
+    public float MountedGrenadeBurstMin = 4f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Grenade Burst Max")]
+    [Description("Longest suppression burst of a grenade launcher (seconds).")]
+    [MinMax(1f, 30f, 10f)]
+    public float MountedGrenadeBurstMax = 10f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted MG Burst Min")]
+    [Description("Shortest suppression burst of a mounted machine gun (seconds).")]
+    [MinMax(0.5f, 20f, 10f)]
+    public float MountedMgBurstMin = 1.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted MG Burst Max")]
+    [Description("Longest suppression burst of a mounted machine gun (seconds).")]
+    [MinMax(0.5f, 20f, 10f)]
+    public float MountedMgBurstMax = 4f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Area Pause Min")]
+    [Description("Shortest pause between two suppression bursts of the same gunner (seconds).")]
+    [MinMax(0f, 120f, 10f)]
+    public float MountedAreaCooldownMin = 6f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Mounted Area Pause Max")]
+    [Description("Longest pause between two suppression bursts of the same gunner (seconds).")]
+    [MinMax(0f, 120f, 10f)]
+    public float MountedAreaCooldownMax = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
     [Name("Rogue Alert Enabled")]
     [Description("When a Rogue is hit by, or a bullet passes close to it from, a shooter it cannot see, the other Rogues within the Rogue Alert Range get the vague shot area and take Cover (staggered by up to Rogue Alert Delay). A Rogue on a mounted gun whose sector covers that area stays on the gun. Needs Mounted Gun Abandon Enabled for the gun part.")]
     public bool ShotRogueAlertEnabled = true;

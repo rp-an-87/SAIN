@@ -671,6 +671,82 @@ public class ShotReactionClass : BotComponentClassBase
         }
     }
 
+    private sealed class AreaTarget
+    {
+        public Vector3 Area;
+        public float Radius;
+        private float _next;
+        private Vector2 _offset;
+
+        public Vector3 Get()
+        {
+            if (Time.time >= _next)
+            {
+                _next = Time.time + 1f;
+                _offset = Random.insideUnitCircle * Radius;
+            }
+            return Area + new Vector3(_offset.x, 0f, _offset.y);
+        }
+    }
+
+    private float _nextAreaCheck;
+    private float _nextAreaSuppress;
+
+    /// <summary>
+    /// A Rogue on a mounted gun that knows only a rough shot area (and cannot see the player) fires suppression bursts at that area through the vanilla suppression layer.
+    /// Random: a chance roll per check, random burst length, random pauses, a target that jitters inside an error radius. Never uses the player's live position.
+    /// </summary>
+    private void TickAreaSuppression(float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (!fork.MountedAreaSuppress || now < _nextAreaCheck)
+        {
+            return;
+        }
+        _nextAreaCheck = now + Random.Range(0.7f, 1.5f);
+        if (Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec || now - _vaguePositionTime > fork.MountedAreaSuppressAreaAge || now < _nextAreaSuppress || StationaryBlocked)
+        {
+            return;
+        }
+        BotStationaryWeaponData stationary = StationaryData;
+        if (stationary == null || !stationary.Taken || stationary.CurLink == null)
+        {
+            return;
+        }
+        BotSuppressStationary suppress = Bot.BotOwner.SuppressStationary;
+        AbstractSuppressStationary logic = suppress?.CurUsingLogic;
+        if (logic == null || logic.IsInProcess)
+        {
+            return;
+        }
+        Enemy goal = Bot.GoalEnemy;
+        if (goal != null && goal.IsVisible && goal.CanShoot)
+        {
+            return;
+        }
+        if (Random.value >= fork.MountedAreaSuppressChance)
+        {
+            _nextAreaSuppress = now + Random.Range(2f, 5f);
+            return;
+        }
+        bool grenade = stationary.CurLink.IsGrenade();
+        float length = grenade
+            ? Random.Range(fork.MountedGrenadeBurstMin, Mathf.Max(fork.MountedGrenadeBurstMin, fork.MountedGrenadeBurstMax))
+            : Random.Range(fork.MountedMgBurstMin, Mathf.Max(fork.MountedMgBurstMin, fork.MountedMgBurstMax));
+        float pause = Random.Range(fork.MountedAreaCooldownMin, Mathf.Max(fork.MountedAreaCooldownMin, fork.MountedAreaCooldownMax));
+        var target = new AreaTarget { Area = _vaguePosition, Radius = fork.MountedAreaSuppressError };
+        if (!logic.CanStartSuppressAt(target.Area))
+        {
+            // Out of the gun's arc (or a spot it already wasted a burst on): not this time.
+            _nextAreaSuppress = now + pause;
+            return;
+        }
+        suppress.SetTargetGetter(target.Get);
+        logic.SetPeriod(length);
+        _nextAreaSuppress = now + length + pause;
+        LogEvent($"area suppression: {(grenade ? "grenade launcher" : "machine gun")} fires at the rough shot area ({(target.Area - Bot.Position).magnitude:0} m, error {target.Radius:0} m) for {length:0.0} s, then pauses {pause:0} s");
+    }
+
     private struct PendingReport
     {
         public IPlayer Enemy;
@@ -2451,6 +2527,7 @@ public class ShotReactionClass : BotComponentClassBase
         HookDeath();
         ProcessPendingRogueAlert(now);
         ProcessReports(now);
+        TickAreaSuppression(now);
         TryProximityInterrupt(now);
         TryOtherEnemyInterrupt(now);
         LogCloseDiagnostics(now);
