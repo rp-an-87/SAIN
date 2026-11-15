@@ -55,4 +55,12 @@ public class AimTargetSettings : SAINSettingsBase<AimTargetSettings>, ISAINSetti
     [Description("Below this distance bots always aim at the torso.")]
     [MinMax(0f, 15f, 100f)]
     public float CloseRangeTorsoDistance = 2f;
+
+    [DataMember]
+    [Name("Head Only Aims At Torso")]
+    [Description(
+        "When the head is the only part of an enemy a bot can shoot (peeking over cover), the bot aims at the torso position anyway instead of the head. "
+            + "The shot goes at the chest behind the cover, so a head hit only happens through recoil and spread. Off = vanilla fallback (shoots the visible head)."
+    )]
+    public bool HeadOnlyAimsAtTorso = true;
 }

@@ -43,6 +43,17 @@ public class EnemyAimTarget(EnemyData enemyData) : EnemyBase(enemyData, enemyDat
         }
 
         float distance = Enemy.RealDistance;
+        if (Settings.HeadOnlyAimsAtTorso && OnlyHeadCanBeShot())
+        {
+            // Only the head peeks out: the bot aims at the torso behind the cover, not at the head (a head hit then needs recoil or spread).
+            Vector3? blind = BlindTorsoPoint();
+            if (blind != null)
+            {
+                _chosen = EAimTargetPart.Chest;
+                return blind;
+            }
+        }
+
         if (distance < Settings.CloseRangeTorsoDistance)
         {
             _chosen = null;
@@ -159,6 +170,38 @@ public class EnemyAimTarget(EnemyData enemyData) : EnemyBase(enemyData, enemyDat
     private bool CanShoot(EAimTargetPart part)
     {
         return Enemy.Vision.EnemyParts.Parts.TryGetValue(part.ToBodyPart(), out var data) && data.CanShoot;
+    }
+
+    private bool OnlyHeadCanBeShot()
+    {
+        var parts = Enemy.Vision.EnemyParts.Parts;
+        if (!parts.TryGetValue(EBodyPart.Head, out var head) || !head.CanShoot)
+        {
+            return false;
+        }
+        foreach (var pair in parts)
+        {
+            if (pair.Key != EBodyPart.Head && pair.Value.CanShoot)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>The chest (or stomach) position even when no ray reaches it: where a torso shot would go.</summary>
+    private Vector3? BlindTorsoPoint()
+    {
+        var parts = Enemy.Vision.EnemyParts.Parts;
+        if (parts.TryGetValue(EBodyPart.Chest, out var chest) && chest.Transform != null)
+        {
+            return chest.Transform.position;
+        }
+        if (parts.TryGetValue(EBodyPart.Stomach, out var stomach) && stomach.Transform != null)
+        {
+            return stomach.Transform.position;
+        }
+        return null;
     }
 
     private Vector3? TorsoPoint()
