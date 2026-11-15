@@ -488,7 +488,26 @@ public class ShotReactionClass : BotComponentClassBase
         }
     }
 
-    /// <summary>A squadmate was hit by this shooter: this bot learns the (already vague) area and rolls its own reaction as for a close bullet.</summary>
+    /// <summary>
+    /// The bot learns a rough area from a mate's alert (hit, kill or bullet). Its uncertainty comes from its OWN distance to the shooter (the same model, as for a shot that was not a hit on it),
+    /// never better than what the alert carried, and the area is its own random point inside that error (not the mate's point).
+    /// </summary>
+    private void LearnFromAlert(Enemy enemy, float alertUncertainty)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float own = ComputeUncertainty(enemy.EnemyPlayer, enemy.RealDistance, false);
+        float uncertainty = Mathf.Max(own, alertUncertainty);
+        float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
+        Vector2 offset = Random.insideUnitCircle * radius;
+        Vector3 point = enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y);
+        if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, radius * 0.5f), NavMesh.AllAreas))
+        {
+            point = navHit.position;
+        }
+        RememberVaguePosition(point, uncertainty);
+    }
+
+    /// <summary>A squadmate was hit by this shooter: this bot learns a rough area of its own and rolls its own reaction as for a close bullet.</summary>
     public void ReceiveSquadAlert(Enemy enemy, Vector3 area, string fromName, float uncertainty)
     {
         float now = Time.time;
@@ -496,9 +515,7 @@ public class ShotReactionClass : BotComponentClassBase
         {
             return;
         }
-        // A little extra error, so a mate never knows more than the bot that was hit.
-        Vector2 offset = Random.insideUnitCircle * 10f;
-        RememberVaguePosition(area + new Vector3(offset.x, 0f, offset.y), uncertainty + 10f);
+        LearnFromAlert(enemy, uncertainty);
         LogEvent($"squad alert from {fromName}: rolling as for a close bullet");
         Roll(enemy, enemy.RealDistance, false, now);
     }
@@ -1065,9 +1082,7 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         ForkSettings fork = GlobalSettings.Fork;
-        // A little error on top, so a mate never knows more than the Rogue that was hit.
-        Vector2 offset = Random.insideUnitCircle * 10f;
-        RememberVaguePosition(_pendingAlertArea + new Vector3(offset.x, 0f, offset.y), _pendingAlertUncertainty + 10f);
+        LearnFromAlert(enemy, _pendingAlertUncertainty);
         if (fork.ShotStationaryEnabled && OnStationary())
         {
             BotStationaryWeaponData stationary = StationaryData;

@@ -529,7 +529,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Position Error Max")]
     [Description("The largest position error, in meters. A hard ceiling: concealment (prone, suppressed) widens the error before it, but never raises it.")]
     [MinMax(0f, 300f, 1f)]
-    public float ShotPositionErrorMax = 100f;
+    public float ShotPositionErrorMax = 125f;
 
     [DataMember]
     [Category("Shot Reaction/Position & timing")]
@@ -557,7 +557,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Hit Position Error Factor")]
     [Description("The position error is multiplied by this when the bot was actually hit (a hit says more about where the shooter is).")]
     [MinMax(0f, 1f, 100f)]
-    public float ShotHitErrorFactor = 0.4f;
+    public float ShotHitErrorFactor = 0.6f;
 
     [DataMember]
     [Category("Shot Reaction/Position & timing")]
