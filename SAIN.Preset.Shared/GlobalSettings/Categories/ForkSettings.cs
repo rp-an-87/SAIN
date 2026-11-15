@@ -527,9 +527,9 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction/Position & timing")]
     [Name("Position Error Max")]
-    [Description("The largest position error, in meters.")]
-    [MinMax(0f, 200f, 1f)]
-    public float ShotPositionErrorMax = 80f;
+    [Description("The largest position error, in meters, for a standing shooter with a normal weapon. A concealed shooter (prone, suppressed) gets a larger cap: the cap is multiplied by the concealment factors.")]
+    [MinMax(0f, 300f, 1f)]
+    public float ShotPositionErrorMax = 100f;
 
     [DataMember]
     [Category("Shot Reaction/Position & timing")]
@@ -537,6 +537,20 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("The smallest position error, in meters: a shot never gives the bot the shooter's exact position, even up close.")]
     [MinMax(0f, 30f, 1f)]
     public float ShotPositionErrorMin = 4f;
+
+    [DataMember]
+    [Category("Shot Reaction/Position & timing")]
+    [Name("Prone Shooter Error Factor")]
+    [Description("The position error (and its cap) is multiplied by this when the shooter lies prone: harder to place. 1 = no effect. Stacks with the suppressed factor.")]
+    [MinMax(1f, 4f, 100f)]
+    public float ShotProneErrorFactor = 1.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Position & timing")]
+    [Name("Suppressed Shooter Error Factor")]
+    [Description("The position error (and its cap) is multiplied by this when the shooter fires a suppressed weapon. 1 = no effect. Stacks with the prone factor.")]
+    [MinMax(1f, 4f, 100f)]
+    public float ShotSuppressedErrorFactor = 1.5f;
 
     [DataMember]
     [Category("Shot Reaction/Position & timing")]
