@@ -523,14 +523,14 @@ public class ShotReactionClass : BotComponentClassBase
     /// The bot learns a rough area from a mate's alert (hit, kill or bullet). Its uncertainty comes from its OWN distance to the shooter (the same model, as for a shot that was not a hit on it),
     /// never better than what the alert carried, and the area is its own random point inside that error (not the mate's point).
     /// </summary>
-    private void LearnFromAlert(Enemy enemy, float alertUncertainty)
+    private void LearnFromAlert(Enemy enemy, float alertUncertainty, Vector3? center = null)
     {
         ForkSettings fork = GlobalSettings.Fork;
         float own = ComputeUncertainty(enemy.EnemyPlayer, enemy.RealDistance, false, enemy);
         float uncertainty = Mathf.Max(own, alertUncertainty);
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = Random.insideUnitCircle * radius;
-        Vector3 point = enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y);
+        Vector3 point = (center ?? enemy.EnemyPosition) + new Vector3(offset.x, 0f, offset.y);
         if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, radius * 0.5f), NavMesh.AllAreas))
         {
             point = navHit.position;
@@ -556,11 +556,78 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     public void OnShot(Enemy enemy, float distance, bool hit)
     {
+        if (_deathHandled || Bot.BotOwner == null || Bot.BotOwner.IsDead)
+        {
+            return;
+        }
         if (!AppliesTo(enemy))
         {
             LogSkipped(enemy, hit);
             return;
         }
+        if (TryHoldCallIn(enemy, distance, hit))
+        {
+            return;
+        }
+        ProcessShot(enemy, distance, hit);
+    }
+
+    /// <summary>
+    /// Fork: a Rogue does not react to a hit or a close bullet at once. The reaction (run for cover) and the radio call go out together after a short wait
+    /// (hit: a fraction of a second, bullet: a second or two). A Rogue that dies in the wait makes no call: the kill path decides (witness or man-down).
+    /// Shots while a reaction is already running are not held.
+    /// </summary>
+    private bool TryHoldCallIn(Enemy enemy, float distance, bool hit)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (!fork.RogueCallInDelayed || Bot.Info.Profile.WildSpawnType != WildSpawnType.exUsec || Outcome != EShotReaction.None || Relocating)
+        {
+            return false;
+        }
+        float now = Time.time;
+        float min = hit ? fork.RogueHitCallInMin : fork.RogueFlyByCallInMin;
+        float max = hit ? fork.RogueHitCallInMax : fork.RogueFlyByCallInMax;
+        float delay = Random.Range(min, Mathf.Max(min, max));
+        if (_callInPending)
+        {
+            _callInTime = Mathf.Min(_callInTime, now + delay);
+            _callInHit |= hit;
+            _callInEnemy = enemy;
+            _callInDistance = distance;
+            return true;
+        }
+        _callInPending = true;
+        _callInTime = now + delay;
+        _callInHit = hit;
+        _callInEnemy = enemy;
+        _callInDistance = distance;
+        LogEvent($"{(hit ? "hit" : "bullet")} at {distance:0} m: reacts and radios in {delay:0.0} s");
+        return true;
+    }
+
+    private void ProcessCallIn(float now)
+    {
+        if (!_callInPending || now < _callInTime)
+        {
+            return;
+        }
+        _callInPending = false;
+        Enemy enemy = _callInEnemy;
+        _callInEnemy = null;
+        if (_deathHandled || Bot.BotOwner == null || Bot.BotOwner.IsDead)
+        {
+            return;
+        }
+        if (!AppliesTo(enemy))
+        {
+            LogEvent("call-in dropped: the shooter is seen by now, normal combat");
+            return;
+        }
+        ProcessShot(enemy, _callInDistance, _callInHit);
+    }
+
+    private void ProcessShot(Enemy enemy, float distance, bool hit)
+    {
         float now = Time.time;
         AlertRogues(enemy.EnemyPlayer, hit, now);
         if (TryStationaryGate(enemy, hit, now))
@@ -730,22 +797,44 @@ public class ShotReactionClass : BotComponentClassBase
         {
             return;
         }
-        BotManagerComponent manager = BotManagerComponent.Instance;
-        if (manager?.Bots == null)
+        if (BotManagerComponent.Instance?.Bots == null)
         {
             return;
         }
         _lastRogueAlertTime = now;
+        _lastAlertSent = now;
+        int alerted = FanOutRogueAlert(shooter, Bot.Position, _vaguePosition, _vagueUncertainty, Bot.name, Bot, null, false);
+        string rangeText = fork.ShotRogueAlertRange <= 0f ? "anywhere on the map" : $"within {fork.ShotRogueAlertRange:0} m";
+        LogEvent($"rogue alert ({(hit ? "hit" : "bullet")}): {alerted} other Rogue(s) {rangeText} take the alert (chance {fork.ShotRogueAlertChance:0.00} each, delay grows with distance)");
+    }
+
+    /// <summary>
+    /// Queues the alert at every other living Rogue in range (each with its own chance and delay from its distance to origin).
+    /// center = where the alert's area is centred (null = around the shooter, the usual rough shot area); manDown = the Rogues cover whatever their gun could answer.
+    /// A real alert makes a pending man-down timer pointless (everybody is alerted anyway).
+    /// </summary>
+    private static int FanOutRogueAlert(IPlayer shooter, Vector3 origin, Vector3 area, float uncertainty, string fromName, BotComponent exclude, Vector3? center, bool manDown)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        BotManagerComponent manager = BotManagerComponent.Instance;
+        if (manager?.Bots == null || shooter == null)
+        {
+            return 0;
+        }
+        if (!manDown)
+        {
+            _deferred.RemoveAll(d => d.ManDown);
+        }
         bool unlimited = fork.ShotRogueAlertRange <= 0f;
         float rangeSqr = fork.ShotRogueAlertRange * fork.ShotRogueAlertRange;
         int alerted = 0;
         foreach (BotComponent other in manager.Bots.Values)
         {
-            if (other == null || other == Bot || other.BotOwner == null || other.BotOwner.IsDead || other.ShotReaction == null)
+            if (other == null || other == exclude || other.BotOwner == null || other.BotOwner.IsDead || other.ShotReaction == null)
             {
                 continue;
             }
-            float awaySqr = (other.Position - Bot.Position).sqrMagnitude;
+            float awaySqr = (other.Position - origin).sqrMagnitude;
             if (other.Info.Profile.WildSpawnType != WildSpawnType.exUsec || (!unlimited && awaySqr > rangeSqr))
             {
                 continue;
@@ -759,22 +848,161 @@ public class ShotReactionClass : BotComponentClassBase
             if (otherEnemy != null)
             {
                 float delay = Random.Range(fork.ShotRogueAlertDelayMin, Mathf.Max(fork.ShotRogueAlertDelayMin, fork.ShotRogueAlertDelayMax)) + Mathf.Sqrt(awaySqr) * fork.ShotRogueAlertDelayPerMeter;
-                other.ShotReaction.QueueRogueAlert(otherEnemy, _vaguePosition, Bot.name, delay, _vagueUncertainty);
+                other.ShotReaction.QueueRogueAlert(otherEnemy, area, fromName, delay, uncertainty, center, manDown);
                 alerted++;
             }
         }
-        string rangeText = unlimited ? "anywhere on the map" : $"within {fork.ShotRogueAlertRange:0} m";
-        LogEvent($"rogue alert ({(hit ? "hit" : "bullet")}): {alerted} other Rogue(s) {rangeText} take the alert (chance {fork.ShotRogueAlertChance:0.00} each, delay grows with distance)");
+        return alerted;
+    }
+
+    /// <summary>A radio call that goes out later, from nobody in particular (the Rogue that would have made it is dead). Ticked by any living Rogue.</summary>
+    private sealed class DeferredRadio
+    {
+        public float Due;
+        public IPlayer Shooter;
+        public Vector3 Origin;
+        public Vector3 Area;
+        public float Uncertainty;
+        public string From;
+        public bool ManDown;
+    }
+
+    private static readonly List<DeferredRadio> _deferred = [];
+    private static int _deferredFrame = -1;
+
+    private static void LogRadio(string message)
+    {
+        if (GlobalSettings.Fork.ShotReactionLog)
+        {
+            global::SAIN.Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} [RogueRadio] {message}");
+        }
+    }
+
+    private static void ProcessDeferredRadio(float now)
+    {
+        if (_deferred.Count == 0 || _deferredFrame == Time.frameCount)
+        {
+            return;
+        }
+        _deferredFrame = Time.frameCount;
+        List<DeferredRadio> due = null;
+        for (int i = _deferred.Count - 1; i >= 0; i--)
+        {
+            if (now >= _deferred[i].Due)
+            {
+                (due ??= []).Add(_deferred[i]);
+                _deferred.RemoveAt(i);
+            }
+        }
+        if (due == null)
+        {
+            return;
+        }
+        foreach (DeferredRadio d in due)
+        {
+            if (now - d.Due > 60f)
+            {
+                continue;
+            }
+            int alerted = FanOutRogueAlert(d.Shooter, d.Origin, d.Area, d.Uncertainty, d.From, null, d.ManDown ? d.Area : (Vector3?)null, d.ManDown);
+            LogRadio($"{(d.ManDown ? "man-down call" : "call of the witness")} for {d.From}: {alerted} Rogue(s) take the alert{(d.ManDown ? " (they cover, no position, no suppression)" : "")}");
+        }
     }
 
     /// <summary>
-    /// A bot was killed (an instant kill never reaches the hit reaction): a Rogue alerts all other Rogues as for a hit, any other bot alerts its squadmates as for a hit,
+    /// A living Rogue that could have seen the victim fall: within its own visible distance, inside its own visible sector (its preset angle and look direction), and a clear line from its eyes to the body.
+    /// Only Rogues in range get the raycast.
+    /// </summary>
+    private static BotComponent FindWitness(Player victim)
+    {
+        BotManagerComponent manager = BotManagerComponent.Instance;
+        if (manager?.Bots == null || victim == null)
+        {
+            return null;
+        }
+        Vector3 body = victim.Position + (Vector3.up * 0.9f);
+        foreach (BotComponent other in manager.Bots.Values)
+        {
+            if (other == null || other.BotOwner == null || other.BotOwner.IsDead || other.BotOwner.GetPlayer == victim || other.Info.Profile.WildSpawnType != WildSpawnType.exUsec)
+            {
+                continue;
+            }
+            LookSensor look = other.BotOwner.LookSensor;
+            if (look == null)
+            {
+                continue;
+            }
+            float sight = look.VisibleDist;
+            if ((other.Position - victim.Position).sqrMagnitude > sight * sight)
+            {
+                continue;
+            }
+            if (!look.IsPointInVisibleSector(body))
+            {
+                continue;
+            }
+            Vector3 eyes = other.Transform.EyePosition;
+            if (Physics.Linecast(eyes, body, LayersMaskController.HighPolyWithTerrainMaskAI))
+            {
+                continue;
+            }
+            return other;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// A Rogue was killed (an instant kill never reaches the hit reaction; one that already radioed a hit or bullet moments ago is not alerted twice).
+    /// Seen by a Rogue: it radios after a short wait, with the rough area around the killer. Not seen: nobody radios, until a long wait ends in a man-down call (no position).
+    /// </summary>
+    private void RogueKillAlert(Player victim, IPlayer killer, float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (now - _lastAlertSent < ALERT_SENT_WINDOW)
+        {
+            LogEvent("kill: this Rogue radioed a moment ago, no second alert");
+            return;
+        }
+        if (!fork.RogueKillNeedsWitness)
+        {
+            _lastRogueAlertTime = -999f;
+            AlertRogues(killer, true, now);
+            return;
+        }
+        Vector3 corpse = victim.Position;
+        BotComponent witness = FindWitness(victim);
+        if (witness != null)
+        {
+            float delay = Random.Range(fork.RogueKillWitnessDelayMin, Mathf.Max(fork.RogueKillWitnessDelayMin, fork.RogueKillWitnessDelayMax));
+            _deferred.Add(new DeferredRadio { Due = now + delay, Shooter = killer, Origin = corpse, Area = _vaguePosition, Uncertainty = _vagueUncertainty, From = Bot.name, ManDown = false });
+            LogEvent($"kill seen by {witness.name}: the radio call goes out in {delay:0.0} s");
+            return;
+        }
+        if (_deferred.Exists(d => d.ManDown))
+        {
+            LogEvent("kill not seen by any Rogue: a man-down call is already pending, no second timer");
+            return;
+        }
+        float wait = Random.Range(fork.RogueManDownDelayMin, Mathf.Max(fork.RogueManDownDelayMin, fork.RogueManDownDelayMax));
+        _deferred.Add(new DeferredRadio { Due = now + wait, Shooter = killer, Origin = corpse, Area = corpse, Uncertainty = fork.ShotPositionErrorMax, From = Bot.name, ManDown = true });
+        LogEvent($"kill not seen by any Rogue: nobody radios it, man-down call in {wait:0} s");
+    }
+
+    /// <summary>
+    /// A bot was killed (an instant kill never reaches the hit reaction): a Rogue's death goes through the witness rules (see RogueKillAlert), any other bot alerts its squadmates as for a hit,
     /// both with a vague area around the killer.
     /// </summary>
     private void OnOwnDeath(Player player, IPlayer lastAggressor, DamageInfo lastDamageInfo, EBodyPart lastBodyPart)
     {
         try
         {
+            if (_deathHandled)
+            {
+                return;
+            }
+            _deathHandled = true;
+            // A call-in the Rogue did not live to make.
+            _callInPending = false;
             ForkSettings fork = GlobalSettings.Fork;
             bool rogue = Bot.Info.Profile.WildSpawnType == WildSpawnType.exUsec;
             bool wanted = rogue ? fork.ShotRogueAlertEnabled : (fork.ShotSquadAlertEnabled && Enabled);
@@ -805,8 +1033,7 @@ public class ShotReactionClass : BotComponentClassBase
             LogEvent($"killed by {killerName} from {distance:0} m (uncertainty {uncertainty:0} m)");
             if (rogue)
             {
-                _lastRogueAlertTime = -999f;
-                AlertRogues(lastAggressor, true, Time.time);
+                RogueKillAlert(player, lastAggressor, Time.time);
             }
             else
             {
@@ -1071,6 +1298,8 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         _pendingSquad = true;
+        _pendingAlertCenter = null;
+        _pendingForceCover = false;
         _pendingAlertUncertainty = uncertainty;
         _pendingAlertEnemy = enemy;
         _pendingAlertArea = area;
@@ -1078,13 +1307,15 @@ public class ShotReactionClass : BotComponentClassBase
         _pendingAlertTime = Time.time + delay;
     }
 
-    public void QueueRogueAlert(Enemy enemy, Vector3 area, string fromName, float delay, float uncertainty)
+    public void QueueRogueAlert(Enemy enemy, Vector3 area, string fromName, float delay, float uncertainty, Vector3? center = null, bool forceCover = false)
     {
         if (!Enabled || _pendingAlertEnemy != null)
         {
             return;
         }
         _pendingSquad = false;
+        _pendingAlertCenter = center;
+        _pendingForceCover = forceCover;
         _pendingAlertUncertainty = uncertainty;
         _pendingAlertEnemy = enemy;
         _pendingAlertArea = area;
@@ -1100,6 +1331,10 @@ public class ShotReactionClass : BotComponentClassBase
         }
         Enemy enemy = _pendingAlertEnemy;
         _pendingAlertEnemy = null;
+        Vector3? alertCenter = _pendingAlertCenter;
+        bool forceCover = _pendingForceCover;
+        _pendingAlertCenter = null;
+        _pendingForceCover = false;
         if (_pendingSquad)
         {
             if (Enemy.IsEnemyActive(enemy))
@@ -1113,8 +1348,13 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         ForkSettings fork = GlobalSettings.Fork;
-        LearnFromAlert(enemy, _pendingAlertUncertainty);
-        if (fork.ShotStationaryEnabled && OnStationary())
+        LearnFromAlert(enemy, _pendingAlertUncertainty, alertCenter);
+        if (forceCover && fork.ShotStationaryEnabled && OnStationary())
+        {
+            // Man-down: no shot area a gun could answer, so a gunner always leaves the gun for cover.
+            AbandonStationary(StationaryData, now, "man-down alert, nothing the gun could answer");
+        }
+        else if (fork.ShotStationaryEnabled && OnStationary())
         {
             BotStationaryWeaponData stationary = StationaryData;
             bool inSector = stationary.IsEnemyAtSector(stationary.CurLink, _vaguePosition);
@@ -2853,6 +3093,8 @@ public class ShotReactionClass : BotComponentClassBase
     {
         float now = Time.time;
         HookDeath();
+        ProcessCallIn(now);
+        ProcessDeferredRadio(now);
         ProcessPendingRogueAlert(now);
         ProcessReports(now);
         TickAreaSuppression(now);
@@ -3282,6 +3524,18 @@ public class ShotReactionClass : BotComponentClassBase
         }
     }
 
+    /// <summary>A Rogue that radioed a hit or bullet this recently has already called it in: its death sends no second alert.</summary>
+    private const float ALERT_SENT_WINDOW = 3f;
+
+    private bool _deathHandled;
+    private float _lastAlertSent = -999f;
+    private bool _callInPending;
+    private bool _callInHit;
+    private Enemy _callInEnemy;
+    private float _callInDistance;
+    private float _callInTime;
+    private Vector3? _pendingAlertCenter;
+    private bool _pendingForceCover;
     private float _stationaryBlockUntil;
     private float _stayStart = -1f;
     private float _answeringUntil;

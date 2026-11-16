@@ -88,6 +88,11 @@ namespace SAIN.Patches.Generic
             {
                 return true;
             }
+            if (fork.RogueCallInDelayed)
+            {
+                // The Rogue radio (ShotReactionClass) delivers the alert after its wait; the vanilla broadcast would tell everybody at once, seen or not.
+                return false;
+            }
             float distance = (victim.Position - owner.Position).magnitude;
             bool allowed = (fork.ShotRogueAlertRange <= 0f || distance <= fork.ShotRogueAlertRange) && Random.value < fork.ShotRogueAlertChance;
             if (fork.ShotReactionLog)

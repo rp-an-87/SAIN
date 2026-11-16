@@ -1816,6 +1816,74 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(10f, 120f, 1f)]
     public float ShotHopMaxTime = 40f;
 
+    [DataMember]
+    [Category("Shot Reaction/Rogue radio")]
+    [Name("Rogue Radio: Delayed Call-In")]
+    [Description("On = a Rogue that is hit or has a bullet pass close does not react at once: after a short wait it runs for cover and radios the others, both at the same moment. A Rogue that dies during the wait makes no call (the kill rules below apply). Also removes the vanilla instant hit broadcast. Off = react at once, vanilla broadcast limited by Rogue Alert Range and Chance.")]
+    public bool RogueCallInDelayed = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue radio")]
+    [Name("Hit Call-In Delay Min")]
+    [Description("Shortest wait (seconds) between a hit on a Rogue and its cover run and radio call.")]
+    [MinMax(0f, 5f, 100f)]
+    public float RogueHitCallInMin = 0.1f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue radio")]
+    [Name("Hit Call-In Delay Max")]
+    [Description("Longest wait (seconds) between a hit on a Rogue and its cover run and radio call.")]
+    [MinMax(0f, 5f, 100f)]
+    public float RogueHitCallInMax = 1f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue radio")]
+    [Name("Bullet Call-In Delay Min")]
+    [Description("Shortest wait (seconds) between a bullet passing close to a Rogue and its cover run and radio call.")]
+    [MinMax(0f, 10f, 10f)]
+    public float RogueFlyByCallInMin = 1f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue radio")]
+    [Name("Bullet Call-In Delay Max")]
+    [Description("Longest wait (seconds) between a bullet passing close to a Rogue and its cover run and radio call. If the bullet kills the Rogue, nothing is sent from the bullet.")]
+    [MinMax(0f, 10f, 10f)]
+    public float RogueFlyByCallInMax = 2f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue radio")]
+    [Name("Kill Needs A Witness")]
+    [Description("On = the death of a Rogue is only radioed if another living Rogue could see it (within that Rogue's visible distance, inside its visible angle, clear line of sight to the body), after Witness Delay. Nobody saw it: no radio until the Man-Down Delay ends, then everybody covers with no position. Off = every kill alerts all Rogues at once.")]
+    public bool RogueKillNeedsWitness = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue radio")]
+    [Name("Witness Delay Min")]
+    [Description("Shortest wait (seconds) between a witnessed kill and the radio call.")]
+    [MinMax(0f, 10f, 10f)]
+    public float RogueKillWitnessDelayMin = 1f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue radio")]
+    [Name("Witness Delay Max")]
+    [Description("Longest wait (seconds) between a witnessed kill and the radio call.")]
+    [MinMax(0f, 10f, 10f)]
+    public float RogueKillWitnessDelayMax = 2f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue radio")]
+    [Name("Man-Down Delay Min")]
+    [Description("Shortest wait (seconds) before the Rogues notice a Rogue that died unseen. Then every Rogue takes cover from the body's area (a Rogue on a mounted gun leaves it), with no position of the shooter and no suppression.")]
+    [MinMax(0f, 120f, 1f)]
+    public float RogueManDownDelayMin = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue radio")]
+    [Name("Man-Down Delay Max")]
+    [Description("Longest wait (seconds) before the Rogues notice a Rogue that died unseen. A real alert in the meantime cancels it.")]
+    [MinMax(0f, 120f, 1f)]
+    public float RogueManDownDelayMax = 40f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);
