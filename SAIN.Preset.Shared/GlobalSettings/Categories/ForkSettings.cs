@@ -926,6 +926,12 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public float ShotCoverHold = 4f;
 
     [DataMember]
+    [Category("Shot Reaction/Cover quality")]
+    [Name("Cover From The Shot Area")]
+    [Description("The cover finder only searches while the bot has a target with a known position. A bot that was only alerted (a Rogue told about a shot, a bot that lost its target after a retreat) has none, found no cover at all and fled blindly. On = during a shot reaction the finder uses the rough shot area as the threat position when the bot has no known position. Off = vanilla finder.")]
+    public bool ShotCoverFromArea = true;
+
+    [DataMember]
     [Category("Shot Reaction/Cover quality (bushes)")]
     [Name("Bush Fade Start Distance")]
     [Description("A bush closer than this to the shot area keeps the full penalty. Beyond it, and out of the shot area line of sight, the penalty fades.")]

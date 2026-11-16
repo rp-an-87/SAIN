@@ -114,7 +114,8 @@ public class CoverFinderComponent : BotComponentBase
         while (Bot != null)
         {
             Enemy enemy = Bot.EnemyController.GoalEnemy;
-            if (enemy != null)
+            // Fork: a bot in a shot reaction without a known target position searches for cover from the rough shot area instead of finding none.
+            if (enemy != null || Bot.ShotReaction.ThreatArea != null)
             {
                 int max = 5;
                 CurrentStatus = ECoverFinderStatus.SearchingColliders;
@@ -163,20 +164,22 @@ public class CoverFinderComponent : BotComponentBase
                     }
                     _totalChecked++;
                     enemy = Bot.EnemyController.GoalEnemy;
-                    if (enemy == null || enemy.LastKnownPosition == null)
+                    Vector3? threat = enemy?.LastKnownPosition ?? Bot.ShotReaction.ThreatArea;
+                    if (threat == null)
                     {
 #if DEBUG
                         Logger.LogDebug("enemy null");
 #endif
                         break;
                     }
-                    Vector3 targetPosition = enemy.LastKnownPosition.Value;
+                    string targetId = enemy != null ? enemy.EnemyProfileId : "shot-area";
+                    Vector3 targetPosition = threat.Value;
                     Vector3 botPosition = Bot.NavMeshPosition;
                     Vector3 targetDirNormal = (targetPosition - botPosition).normalized;
                     if (colliderData.CoverPoint != null)
                     {
                         if (
-                            colliderData.CoverPoint.ShallUpdate(enemy.EnemyProfileId)
+                            colliderData.CoverPoint.ShallUpdate(targetId)
                             && !CoverAnalyzer.RecheckCoverPoint(
                                 colliderData.CoverPoint,
                                 targetPosition,

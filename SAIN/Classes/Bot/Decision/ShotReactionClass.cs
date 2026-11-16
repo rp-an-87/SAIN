@@ -414,6 +414,22 @@ public class ShotReactionClass : BotComponentClassBase
         return Mathf.Max(sight, GlobalSettings.Fork.ShotUncertaintyMinSight);
     }
 
+    /// <summary>
+    /// The rough shot area while the bot is in a shot reaction and it is fresh: the cover finder uses it as the threat position when the bot has no known position of a target
+    /// (an alerted bot has an enemy record but nothing in its known places). Null otherwise.
+    /// </summary>
+    public Vector3? ThreatArea
+    {
+        get
+        {
+            if (!Enabled || !GlobalSettings.Fork.ShotCoverFromArea || _vaguePositionTime <= 0f || Time.time - _vaguePositionTime > VAGUE_POSITION_MAX_AGE)
+            {
+                return null;
+            }
+            return Outcome != EShotReaction.None || Relocating ? _vaguePosition : null;
+        }
+    }
+
     /// <summary>True while the bot is in a shot reaction (hiding, retreating, investigating): its cover search is wider and taller (see CoverFinderComponent).</summary>
     public bool WideCoverSearch
     {
