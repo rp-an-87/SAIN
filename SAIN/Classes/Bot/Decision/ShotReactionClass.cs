@@ -1349,6 +1349,8 @@ public class ShotReactionClass : BotComponentClassBase
         public float Time;
         public string From;
         public BotOwner Reporter;
+        public BotsGroup Group;
+        public EEnemyPartVisibleType Type;
     }
 
     private readonly List<PendingReport> _reports = [];
@@ -1356,7 +1358,82 @@ public class ShotReactionClass : BotComponentClassBase
     /// <summary>Another Rogue's enemy report is delivered later (see RogueReport_Patch).</summary>
     public void QueueReport(IPlayer enemy, Vector3 position, Vector3 weaponRoot, float deliverAt, string from = null, BotOwner reporter = null)
     {
-        _reports.Add(new PendingReport { Enemy = enemy, Position = position, WeaponRoot = weaponRoot, Time = deliverAt, From = from, Reporter = reporter });
+        _reports.Add(new PendingReport { Enemy = enemy, Position = position, WeaponRoot = weaponRoot, Time = deliverAt, From = from, Reporter = reporter, Type = EEnemyPartVisibleType.Sence });
+    }
+
+    /// <summary>Rogues and Goons: the bots whose reports about the player are handled by the Rogue radio.</summary>
+    public static bool IsRogueOrGoon(BotOwner owner)
+    {
+        WildSpawnType? role = owner?.Profile?.Info?.Settings?.Role;
+        return role == WildSpawnType.exUsec || role == WildSpawnType.bossKnight || role == WildSpawnType.followerBigPipe || role == WildSpawnType.followerBirdEye;
+    }
+
+    private static readonly List<BotsGroup> _groupScratch = [];
+
+    /// <summary>
+    /// A Rogue or Goon sees the player. Vanilla writes the exact position into its own group at once and relays it to every Rogue and Goon group
+    /// (see BotsGroup.ReportAboutEnemy). Instead, one report per Rogue/Goon group is queued here, each after its own delay (random + per metre from the reporter),
+    /// and delivered as one rough point per group (see DeliverToGroup). Called at most once per interval per group.
+    /// </summary>
+    public void QueueGroupReports(IPlayer enemy, EEnemyPartVisibleType type)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        BotManagerComponent manager = BotManagerComponent.Instance;
+        if (manager?.Bots == null || enemy == null)
+        {
+            return;
+        }
+        Vector3 position = enemy.Transform.position;
+        Vector3 weaponRoot = enemy.WeaponRoot.position;
+        _groupScratch.Clear();
+        foreach (BotComponent other in manager.Bots.Values)
+        {
+            if (other == null || other.BotOwner == null || other.BotOwner.IsDead || !IsRogueOrGoon(other.BotOwner))
+            {
+                continue;
+            }
+            BotsGroup group = other.BotOwner.BotsGroup;
+            if (group != null && !_groupScratch.Contains(group))
+            {
+                _groupScratch.Add(group);
+            }
+        }
+        Vector3 from = Bot.Position;
+        float now = Time.time;
+        for (int g = 0; g < _groupScratch.Count; g++)
+        {
+            BotsGroup group = _groupScratch[g];
+            float distance = float.MaxValue;
+            for (int i = 0; i < group.MembersCount; i++)
+            {
+                BotOwner member = group.Member(i);
+                if (member != null && member != Bot.BotOwner && !member.IsDead)
+                {
+                    distance = Mathf.Min(distance, (member.Position - from).magnitude);
+                }
+            }
+            if (distance == float.MaxValue)
+            {
+                distance = 0f;
+            }
+            if (fork.RogueReportRange > 0f && distance > fork.RogueReportRange)
+            {
+                continue;
+            }
+            float delay = Random.Range(fork.RogueReportDelayMin, Mathf.Max(fork.RogueReportDelayMin, fork.RogueReportDelayMax)) + (distance * fork.RogueReportDelayPerMeter);
+            _reports.Add(new PendingReport
+            {
+                Enemy = enemy,
+                Position = position,
+                WeaponRoot = weaponRoot,
+                Time = now + delay,
+                From = Bot.name,
+                Reporter = Bot.BotOwner,
+                Group = group,
+                Type = type,
+            });
+        }
+        _groupScratch.Clear();
     }
 
     private void ProcessReports(float now)
@@ -1455,15 +1532,61 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     private void DeliverReport(PendingReport report, float now)
     {
-        ForkSettings fork = GlobalSettings.Fork;
-        BotsGroup group = Bot.BotOwner?.BotsGroup;
-        if (group == null)
+        BotsGroup target = report.Group ?? Bot.BotOwner?.BotsGroup;
+        if (target == null)
         {
             return;
         }
+        ShotReactionClass lead = this;
+        if (report.Group != null)
+        {
+            lead = ClosestMemberReaction(target, report.Enemy);
+            if (lead == null)
+            {
+                return;
+            }
+        }
+        lead.DeliverToGroup(report, target, now);
+    }
+
+    /// <summary>The shot reaction of the group member closest to the player (the best informed one of its group).</summary>
+    private static ShotReactionClass ClosestMemberReaction(BotsGroup group, IPlayer enemy)
+    {
+        BotManagerComponent manager = BotManagerComponent.Instance;
+        if (manager == null || enemy == null)
+        {
+            return null;
+        }
+        ShotReactionClass best = null;
+        float bestSqr = float.MaxValue;
+        Vector3 position = enemy.Position;
+        for (int i = 0; i < group.MembersCount; i++)
+        {
+            BotOwner member = group.Member(i);
+            if (member == null || member.IsDead || !manager.GetSAIN(member, out BotComponent other) || other.ShotReaction == null)
+            {
+                continue;
+            }
+            float sqr = (position - member.Position).sqrMagnitude;
+            if (sqr < bestSqr)
+            {
+                bestSqr = sqr;
+                best = other.ShotReaction;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Delivers a report to one group (this bot is its member closest to the player): one rough point (as rough as this bot would get from a shot, narrowed by its count)
+    /// written to the group's record, then every member takes the point as its rough area with its own uncertainty and count.
+    /// </summary>
+    private void DeliverToGroup(PendingReport report, BotsGroup group, float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
         if (!fork.RogueReportRough || report.Enemy == null)
         {
-            group.SetEnemyPos(report.Enemy, report.Position, report.WeaponRoot, EEnemyPartVisibleType.Sence);
+            group.SetEnemyPos(report.Enemy, report.Position, report.WeaponRoot, report.Type);
             return;
         }
         float factor = NoteInformation(now);
@@ -1483,7 +1606,7 @@ public class ShotReactionClass : BotComponentClassBase
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 delta = new Vector3(offset.x, 0f, offset.y);
         Vector3 point = SnapKeepingRing(report.Position + delta, report.Position, radius * fork.ShotAreaInnerFraction, radius);
-        group.SetEnemyPos(report.Enemy, point, report.WeaponRoot + (point - report.Position), EEnemyPartVisibleType.Sence);
+        group.SetEnemyPos(report.Enemy, point, report.WeaponRoot + (point - report.Position), report.Type);
         BotManagerComponent manager = BotManagerComponent.Instance;
         for (int i = 0; i < group.MembersCount; i++)
         {

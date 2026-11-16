@@ -241,6 +241,46 @@ namespace SAIN.Patches.Generic
         }
     }
 
+    /// <summary>
+    /// Fork: vanilla BotsGroup.ReportAboutEnemy runs on every look tick of every bot that sees the player (hundreds of calls per second): it writes the player's exact position
+    /// into the reporter's group at once and relays it to every Rogue and Goon group. For a Rogue or Goon reporting the player that is replaced by one report per group per second,
+    /// delivered later as a rough point (RogueReportDelayed). Reports about other bots, or from other kinds of bots, are untouched.
+    /// </summary>
+    public class RogueReportSource_Patch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(BotsGroup), nameof(BotsGroup.ReportAboutEnemy));
+        }
+
+        [PatchPrefix]
+        public static bool Patch(BotsGroup __instance, IPlayer enemy, EEnemyPartVisibleType isVisibleOnlyBySence, BotOwner reporter)
+        {
+            var fork = SAINPlugin.LoadedPreset.GlobalSettings.Fork;
+            if (!fork.RogueReportDelayed || enemy == null || enemy.AIData?.IsAI == true || reporter == null || !ShotReactionClass.IsRogueOrGoon(reporter))
+            {
+                return true;
+            }
+            BotComponent bot = MountedHelpers.GetBot(reporter);
+            if (bot == null || bot.ShotReaction == null)
+            {
+                return true;
+            }
+            ShotPerf.ReportCalls++;
+            if (reporter.IsDead)
+            {
+                return false;
+            }
+            if (!ShotReactionClass.AcceptGroupReport(reporter, bot.ShotReaction))
+            {
+                return false;
+            }
+            ShotPerf.ReportAccepted++;
+            bot.ShotReaction.QueueGroupReports(enemy, isVisibleOnlyBySence);
+            return false;
+        }
+    }
+
     /// <summary>Fork: vanilla enemy reports between Rogues give every Rogue the exact position at once. Delayed and range-limited here.</summary>
     public class RogueReport_Patch : ModulePatch
     {
