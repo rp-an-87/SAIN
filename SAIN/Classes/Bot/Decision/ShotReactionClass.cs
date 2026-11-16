@@ -882,6 +882,14 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     private static int FanOutRogueAlert(IPlayer shooter, Vector3 origin, Vector3 area, float uncertainty, string fromName, BotComponent exclude, Vector3? center, bool manDown)
     {
+        long started = ShotPerf.Start();
+        int alerted = FanOutCore(shooter, origin, area, uncertainty, fromName, exclude, center, manDown);
+        ShotPerf.Stop(ShotPerf.FanOut, started);
+        return alerted;
+    }
+
+    private static int FanOutCore(IPlayer shooter, Vector3 origin, Vector3 area, float uncertainty, string fromName, BotComponent exclude, Vector3? center, bool manDown)
+    {
         ForkSettings fork = GlobalSettings.Fork;
         BotManagerComponent manager = BotManagerComponent.Instance;
         if (manager?.Bots == null || shooter == null)
@@ -1354,7 +1362,9 @@ public class ShotReactionClass : BotComponentClassBase
                 continue;
             }
             _reports.RemoveAt(i);
+            long started = ShotPerf.Start();
             DeliverReport(report, now);
+            ShotPerf.Stop(ShotPerf.Deliver, started);
         }
     }
 
@@ -1382,6 +1392,55 @@ public class ShotReactionClass : BotComponentClassBase
         return true;
     }
 
+    private static readonly Dictionary<BotsGroup, float> _groupNextReport = [];
+
+    /// <summary>
+    /// One report per group per interval: the report ends in one shared record per group (BotsGroup.SetEnemyPos, the last write wins), so every member
+    /// delivering its own is the same work N times and the members' points overwrite each other.
+    /// </summary>
+    public static bool AcceptGroupReport(BotOwner owner, ShotReactionClass fallback)
+    {
+        BotsGroup group = owner?.BotsGroup;
+        if (group == null)
+        {
+            return fallback.AcceptReport();
+        }
+        float interval = GlobalSettings.Fork.RogueReportMinInterval;
+        float now = Time.time;
+        if (interval <= 0f)
+        {
+            return true;
+        }
+        if (_groupNextReport.TryGetValue(group, out float next) && now < next)
+        {
+            return false;
+        }
+        if (_groupNextReport.Count > 64)
+        {
+            List<BotsGroup> old = null;
+            foreach (var pair in _groupNextReport)
+            {
+                if (pair.Value < now - 60f)
+                {
+                    (old ??= []).Add(pair.Key);
+                }
+            }
+            if (old != null)
+            {
+                foreach (BotsGroup key in old)
+                {
+                    _groupNextReport.Remove(key);
+                }
+            }
+        }
+        _groupNextReport[group] = now + interval;
+        return true;
+    }
+
+    /// <summary>
+    /// Delivers a report for the whole group once: one rough point (as rough as the group member closest to the player would get from a shot, narrowed by this bot's count)
+    /// written to the group's record, then every member (including this bot) takes the point as its rough area with its own uncertainty and count.
+    /// </summary>
     private void DeliverReport(PendingReport report, float now)
     {
         ForkSettings fork = GlobalSettings.Fork;
@@ -1396,21 +1455,48 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         float factor = NoteInformation(now);
-        // The receiver's own distance to the player and its own sight decide how rough the point is (the same model as shots and alerts), concealment included.
         Enemy known = Bot.EnemyController?.GetEnemy(report.Enemy.ProfileId, false);
-        float distance = (report.Enemy.Position - Bot.Position).magnitude;
+        Vector3 playerPosition = report.Enemy.Position;
+        float distance = (playerPosition - Bot.Position).magnitude;
+        for (int i = 0; i < group.MembersCount; i++)
+        {
+            BotOwner member = group.Member(i);
+            if (member != null && !member.IsDead)
+            {
+                distance = Mathf.Min(distance, (playerPosition - member.Position).magnitude);
+            }
+        }
         float uncertainty = Shrunk(ComputeUncertainty(report.Enemy, distance, false, known), FloorAt(fork.AreaFloorOuter, distance, known), factor);
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 delta = new Vector3(offset.x, 0f, offset.y);
         Vector3 point = SnapKeepingRing(report.Position + delta, report.Position, radius * fork.ShotAreaInnerFraction, radius);
         group.SetEnemyPos(report.Enemy, point, report.WeaponRoot + (point - report.Position), EEnemyPartVisibleType.Sence);
-        RememberVaguePosition(point, uncertainty);
+        BotManagerComponent manager = BotManagerComponent.Instance;
+        for (int i = 0; i < group.MembersCount; i++)
+        {
+            BotOwner member = group.Member(i);
+            if (member != null && !member.IsDead && manager != null && manager.GetSAIN(member, out BotComponent other) && other.ShotReaction != null)
+            {
+                other.ShotReaction.TakeGroupPoint(report.Enemy, point, now);
+            }
+        }
         if (_knowCount != _reportLoggedCount)
         {
             _reportLoggedCount = _knowCount;
             LogEvent($"report from {report.From}: rough point {(point - report.Position).magnitude:0} m from the player (uncertainty {uncertainty:0} m at {distance:0} m, piece #{_knowCount})");
         }
+    }
+
+    /// <summary>A member of a group takes the group's report point as its own rough area, with its own uncertainty (its own distance, sight and count).</summary>
+    public void TakeGroupPoint(IPlayer enemy, Vector3 point, float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float factor = NoteInformation(now);
+        Enemy known = Bot.EnemyController?.GetEnemy(enemy.ProfileId, false);
+        float distance = (enemy.Position - Bot.Position).magnitude;
+        float uncertainty = Shrunk(ComputeUncertainty(enemy, distance, false, known), FloorAt(fork.AreaFloorOuter, distance, known), factor);
+        RememberVaguePosition(point, uncertainty);
     }
 
     /// <summary>A squadmate's hit or kill: this bot reacts after a short delay (not at once).</summary>
@@ -3214,6 +3300,14 @@ public class ShotReactionClass : BotComponentClassBase
 
     public override void ManualUpdate()
     {
+        long started = ShotPerf.Start();
+        ManualUpdateCore();
+        ShotPerf.Stop(ShotPerf.Update, started);
+        ShotPerf.Report(Time.time);
+    }
+
+    private void ManualUpdateCore()
+    {
         float now = Time.time;
         HookDeath();
         ProcessCallIn(now);
@@ -3595,6 +3689,13 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     private void Apply(Enemy enemy, EShotReaction outcome, float reachRatio, float now, ForkSettings fork)
+    {
+        long started = ShotPerf.Start();
+        ApplyCore(enemy, outcome, reachRatio, now, fork);
+        ShotPerf.Stop(ShotPerf.Apply, started);
+    }
+
+    private void ApplyCore(Enemy enemy, EShotReaction outcome, float reachRatio, float now, ForkSettings fork)
     {
         _enemy = enemy;
         Outcome = outcome;

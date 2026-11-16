@@ -4,6 +4,7 @@ using HarmonyLib;
 using EFT;
 using EFT.Ballistics;
 using SAIN.Components;
+using SAIN.SAINComponent.Classes.Decision;
 using SAIN.SAINComponent.Classes.EnemyClasses;
 using UnityEngine;
 using SPT.Reflection.Patching;
@@ -262,10 +263,12 @@ namespace SAIN.Patches.Generic
             {
                 return true;
             }
-            if (!bot.ShotReaction.AcceptReport())
+            ShotPerf.ReportCalls++;
+            if (!ShotReactionClass.AcceptGroupReport(owner, bot.ShotReaction))
             {
                 return false;
             }
+            ShotPerf.ReportAccepted++;
             float distance = reporter != null ? (reporter.Position - owner.Position).magnitude : 0f;
             if (fork.RogueReportRange > 0f && distance > fork.RogueReportRange)
             {

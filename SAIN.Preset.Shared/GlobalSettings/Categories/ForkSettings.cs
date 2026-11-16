@@ -1932,6 +1932,12 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(0f, 10f, 10f)]
     public float RogueReportMinInterval = 1f;
 
+    [DataMember]
+    [Category("Shot Reaction/Diagnostics")]
+    [Name("Performance Log")]
+    [Description("Every 10 seconds one log line with how much time the shot reaction code took (average ms per second, worst call, worst frame, per part) and how many vanilla report calls came in and were taken.")]
+    public bool ShotPerfLog = true;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);
