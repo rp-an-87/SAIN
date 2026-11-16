@@ -1925,6 +1925,13 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("On = a report from another Rogue gives the receiver a point in a ring around the player, not the exact position: as rough as a shot from the receiver's own distance would be (concealment included), narrowed like every rough area. Off = the exact position, delayed (Report Delay).")]
     public bool RogueReportRough = true;
 
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Report Minimum Interval")]
+    [Description("A Rogue takes at most one report from the others per this many seconds; the vanilla report fires many times per second while a Rogue sees the player (hundreds of calls per second on the map). The rest are dropped before any work is done. 0 = no limit.")]
+    [MinMax(0f, 10f, 10f)]
+    public float RogueReportMinInterval = 1f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

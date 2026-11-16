@@ -262,6 +262,10 @@ namespace SAIN.Patches.Generic
             {
                 return true;
             }
+            if (!bot.ShotReaction.AcceptReport())
+            {
+                return false;
+            }
             float distance = reporter != null ? (reporter.Position - owner.Position).magnitude : 0f;
             if (fork.RogueReportRange > 0f && distance > fork.RogueReportRange)
             {

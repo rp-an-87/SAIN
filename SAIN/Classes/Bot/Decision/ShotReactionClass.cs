@@ -321,11 +321,7 @@ public class ShotReactionClass : BotComponentClassBase
         float uncertainty = Shrunk(ComputeUncertainty(enemy.EnemyPlayer, distance, hit, enemy), FloorAt(fork.AreaFloorOuter, distance, enemy), NoteInformation(now));
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
-        Vector3 point = enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y);
-        if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, radius * 0.5f), NavMesh.AllAreas))
-        {
-            point = navHit.position;
-        }
+        Vector3 point = SnapKeepingRing(enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y), enemy.EnemyPosition, radius * fork.ShotAreaInnerFraction, radius);
         // Never the shooter's exact position: if there is no navmesh near the offset point, the raw offset point is the vague area.
         RememberVaguePosition(point, uncertainty);
         return point;
@@ -498,6 +494,24 @@ public class ShotReactionClass : BotComponentClassBase
         return factor >= 1f ? value : Mathf.Max(value * factor, Mathf.Min(value, floor));
     }
 
+    /// <summary>
+    /// Puts a rough point on the navmesh, but only if that keeps it inside its ring (not closer to the shooter than inner, not farther than outer):
+    /// snapping to the nearest navmesh point can pull the point right next to the player, which would undo the minimum distance.
+    /// Without a navmesh point near, or with a snapped point outside the ring, the raw point is used.
+    /// </summary>
+    private static Vector3 SnapKeepingRing(Vector3 raw, Vector3 center, float inner, float outer)
+    {
+        if (NavMesh.SamplePosition(raw, out NavMeshHit hit, Mathf.Max(5f, outer * 0.5f), NavMesh.AllAreas))
+        {
+            float away = new Vector2(hit.position.x - center.x, hit.position.z - center.z).magnitude;
+            if (away >= inner * 0.95f && away <= outer * 1.05f)
+            {
+                return hit.position;
+            }
+        }
+        return raw;
+    }
+
     private void RememberVaguePosition(Vector3 position, float uncertainty)
     {
         _vaguePosition = position;
@@ -586,11 +600,8 @@ public class ShotReactionClass : BotComponentClassBase
         float uncertainty = Shrunk(Mathf.Max(own, alertUncertainty), FloorAt(fork.AreaFloorOuter, enemy.RealDistance, enemy), NoteInformation(Time.time));
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
-        Vector3 point = (center ?? enemy.EnemyPosition) + new Vector3(offset.x, 0f, offset.y);
-        if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, radius * 0.5f), NavMesh.AllAreas))
-        {
-            point = navHit.position;
-        }
+        Vector3 ringCenter = center ?? enemy.EnemyPosition;
+        Vector3 point = SnapKeepingRing(ringCenter + new Vector3(offset.x, 0f, offset.y), ringCenter, radius * fork.ShotAreaInnerFraction, radius);
         RememberVaguePosition(point, uncertainty);
     }
 
@@ -1352,6 +1363,25 @@ public class ShotReactionClass : BotComponentClassBase
     /// distance and sight (small close up, large far away) and narrows with every further piece of information (down to a distance-scaled floor).
     /// The point also becomes the rough area (with that uncertainty), so mounted guns need it narrow enough before they fire at it.
     /// </summary>
+    /// <summary>
+    /// The vanilla report fires many times per second while a Rogue sees the player; a receiver takes at most one per interval (the rest are dropped before any work is done).
+    /// </summary>
+    public bool AcceptReport()
+    {
+        float interval = GlobalSettings.Fork.RogueReportMinInterval;
+        float now = Time.time;
+        if (interval <= 0f)
+        {
+            return true;
+        }
+        if (now < _nextReportAccept)
+        {
+            return false;
+        }
+        _nextReportAccept = now + interval;
+        return true;
+    }
+
     private void DeliverReport(PendingReport report, float now)
     {
         ForkSettings fork = GlobalSettings.Fork;
@@ -1373,15 +1403,12 @@ public class ShotReactionClass : BotComponentClassBase
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 delta = new Vector3(offset.x, 0f, offset.y);
-        Vector3 point = report.Position + delta;
-        if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, radius * 0.5f), NavMesh.AllAreas))
-        {
-            point = navHit.position;
-        }
+        Vector3 point = SnapKeepingRing(report.Position + delta, report.Position, radius * fork.ShotAreaInnerFraction, radius);
         group.SetEnemyPos(report.Enemy, point, report.WeaponRoot + (point - report.Position), EEnemyPartVisibleType.Sence);
         RememberVaguePosition(point, uncertainty);
-        if (_knowCount <= 1 || _knowCount % 5 == 0)
+        if (_knowCount != _reportLoggedCount)
         {
+            _reportLoggedCount = _knowCount;
             LogEvent($"report from {report.From}: rough point {(point - report.Position).magnitude:0} m from the player (uncertainty {uncertainty:0} m at {distance:0} m, piece #{_knowCount})");
         }
     }
@@ -3623,6 +3650,8 @@ public class ShotReactionClass : BotComponentClassBase
     /// <summary>A Rogue that radioed a hit or bullet this recently has already called it in: its death sends no second alert.</summary>
     private const float ALERT_SENT_WINDOW = 3f;
 
+    private int _reportLoggedCount;
+    private float _nextReportAccept;
     private int _knowCount;
     private float _knowLastCount = -999f;
     private float _knowLastInfo = -999f;
