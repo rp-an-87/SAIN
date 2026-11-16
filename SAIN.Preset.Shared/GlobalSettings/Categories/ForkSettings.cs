@@ -1907,17 +1907,10 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Rough area")]
-    [Name("Area Floor Outer")]
-    [Description("Narrowing never takes a rough area (its radius and uncertainty) below this many meters. An area that was smaller to begin with (a close shot) is left as it was. A mounted gun fires at it once its uncertainty is within the gun's limit (machine gun 30 m, grenade launcher 20 m).")]
+    [Name("Area Floor")]
+    [Description("Narrowing never takes a rough area (its radius and uncertainty) below this many meters when the shooter is at the bot's sight distance or farther; closer it is proportionally lower (half the sight distance = half the floor), so close fights keep their tight areas. An area that was smaller to begin with is left as it was. A mounted gun fires at it once its uncertainty is within the gun's limit (machine gun 30 m, grenade launcher 20 m).")]
     [MinMax(0f, 100f, 1f)]
-    public float AreaFloorOuter = 25f;
-
-    [DataMember]
-    [Category("Shot Reaction/Rough area")]
-    [Name("Area Floor Inner")]
-    [Description("The inner radius of a report's ring is never narrowed below this many meters, so a report never gives an exact position.")]
-    [MinMax(0f, 100f, 1f)]
-    public float AreaFloorInner = 12f;
+    public float AreaFloorOuter = 20f;
 
     [DataMember]
     [Category("Shot Reaction/Rough area")]
@@ -1929,22 +1922,8 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction/Rough area")]
     [Name("Reports: Rough Points")]
-    [Description("On = a report from another Rogue gives the receiver a point in a ring around the player, not the exact position, narrowed like every rough area. Off = the exact position, delayed (Report Delay).")]
+    [Description("On = a report from another Rogue gives the receiver a point in a ring around the player, not the exact position: as rough as a shot from the receiver's own distance would be (concealment included), narrowed like every rough area. Off = the exact position, delayed (Report Delay).")]
     public bool RogueReportRough = true;
-
-    [DataMember]
-    [Category("Shot Reaction/Rough area")]
-    [Name("Report Ring Outer")]
-    [Description("Outer radius (meters) of the ring around the player for the first piece of information a Rogue gets by report.")]
-    [MinMax(0f, 200f, 1f)]
-    public float RogueReportRingOuter = 60f;
-
-    [DataMember]
-    [Category("Shot Reaction/Rough area")]
-    [Name("Report Ring Inner")]
-    [Description("Inner radius (meters) of that ring: the point is never closer to the player than this.")]
-    [MinMax(0f, 200f, 1f)]
-    public float RogueReportRingInner = 30f;
 
     public override void Init(List<ISAINSettings> list)
     {

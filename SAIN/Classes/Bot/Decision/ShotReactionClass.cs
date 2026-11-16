@@ -318,7 +318,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         _lastDegradeTime = now;
 
-        float uncertainty = Shrunk(ComputeUncertainty(enemy.EnemyPlayer, distance, hit, enemy), fork.AreaFloorOuter, NoteInformation(now));
+        float uncertainty = Shrunk(ComputeUncertainty(enemy.EnemyPlayer, distance, hit, enemy), FloorAt(fork.AreaFloorOuter, distance, enemy), NoteInformation(now));
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 point = enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y);
@@ -483,6 +483,15 @@ public class ShotReactionClass : BotComponentClassBase
         return Mathf.Pow(shrink, _knowCount - 1);
     }
 
+    /// <summary>
+    /// The narrowing floor for a shooter at this distance: the full floor at the bot's sight distance and beyond, proportionally less closer
+    /// (the same ratio the uncertainty model uses), so close fights keep their tight areas and far ones narrow only down to a larger floor.
+    /// </summary>
+    private float FloorAt(float floor, float distance, Enemy enemy)
+    {
+        return floor * Mathf.Clamp01(distance / Mathf.Max(SightDistance(enemy), 1f));
+    }
+
     /// <summary>The value narrowed by the factor, but never below the floor (an area that was smaller to begin with stays as it was).</summary>
     private static float Shrunk(float value, float floor, float factor)
     {
@@ -574,7 +583,7 @@ public class ShotReactionClass : BotComponentClassBase
     {
         ForkSettings fork = GlobalSettings.Fork;
         float own = ComputeUncertainty(enemy.EnemyPlayer, enemy.RealDistance, false, enemy);
-        float uncertainty = Shrunk(Mathf.Max(own, alertUncertainty), fork.AreaFloorOuter, NoteInformation(Time.time));
+        float uncertainty = Shrunk(Mathf.Max(own, alertUncertainty), FloorAt(fork.AreaFloorOuter, enemy.RealDistance, enemy), NoteInformation(Time.time));
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 point = (center ?? enemy.EnemyPosition) + new Vector3(offset.x, 0f, offset.y);
@@ -1339,9 +1348,9 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>
-    /// A report from another Rogue gives this Rogue a point in a ring around the player, not the exact position. The first report gives a wide ring;
-    /// every further report within the memory time narrows it (down to a floor), as the Rogue pieces the position together.
-    /// The point also becomes the rough area (and its outer radius the uncertainty), so mounted guns need it narrow enough before they fire at it.
+    /// A report from another Rogue gives this Rogue a point in a ring around the player, not the exact position. How rough it is depends on the receiver's own
+    /// distance and sight (small close up, large far away) and narrows with every further piece of information (down to a distance-scaled floor).
+    /// The point also becomes the rough area (with that uncertainty), so mounted guns need it narrow enough before they fire at it.
     /// </summary>
     private void DeliverReport(PendingReport report, float now)
     {
@@ -1357,20 +1366,23 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         float factor = NoteInformation(now);
-        float outer = Shrunk(fork.RogueReportRingOuter, fork.AreaFloorOuter, factor);
-        float inner = Mathf.Min(outer, Shrunk(fork.RogueReportRingInner, fork.AreaFloorInner, factor));
-        Vector2 offset = RingOffset(inner, outer);
+        // The receiver's own distance to the player and its own sight decide how rough the point is (the same model as shots and alerts), concealment included.
+        Enemy known = Bot.EnemyController?.GetEnemy(report.Enemy.ProfileId, false);
+        float distance = (report.Enemy.Position - Bot.Position).magnitude;
+        float uncertainty = Shrunk(ComputeUncertainty(report.Enemy, distance, false, known), FloorAt(fork.AreaFloorOuter, distance, known), factor);
+        float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
+        Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 delta = new Vector3(offset.x, 0f, offset.y);
         Vector3 point = report.Position + delta;
-        if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, outer * 0.5f), NavMesh.AllAreas))
+        if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, radius * 0.5f), NavMesh.AllAreas))
         {
             point = navHit.position;
         }
         group.SetEnemyPos(report.Enemy, point, report.WeaponRoot + (point - report.Position), EEnemyPartVisibleType.Sence);
-        RememberVaguePosition(point, outer);
+        RememberVaguePosition(point, uncertainty);
         if (_knowCount <= 1 || _knowCount % 5 == 0)
         {
-            LogEvent($"report from {report.From}: rough point {(point - report.Position).magnitude:0} m from the player (ring {inner:0}-{outer:0} m, piece #{_knowCount})");
+            LogEvent($"report from {report.From}: rough point {(point - report.Position).magnitude:0} m from the player (uncertainty {uncertainty:0} m at {distance:0} m, piece #{_knowCount})");
         }
     }
 
