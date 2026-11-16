@@ -608,6 +608,7 @@ public class ShotReactionClass : BotComponentClassBase
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 ringCenter = center ?? enemy.EnemyPosition;
         Vector3 point = SnapKeepingRing(ringCenter + new Vector3(offset.x, 0f, offset.y), ringCenter, radius * fork.ShotAreaInnerFraction, radius);
+        MarkKnown(enemy, point);
         RememberVaguePosition(point, uncertainty);
     }
 
@@ -1632,6 +1633,32 @@ public class ShotReactionClass : BotComponentClassBase
         float distance = (enemy.Position - Bot.Position).magnitude;
         float uncertainty = Shrunk(ComputeUncertainty(enemy, distance, false, known), FloorAt(fork.AreaFloorOuter, distance, known), factor);
         RememberVaguePosition(point, uncertainty);
+        if (fork.ShotAlertMarksKnown && (!fork.ShotReactionPlayerOnly || (enemy as Player)?.IsYourPlayer == true))
+        {
+            MarkKnown(known ?? EnemyFor(Bot, enemy), point);
+        }
+    }
+
+    /// <summary>
+    /// An alert or a report tells this bot about the player: the player becomes a known enemy at the rough point (never the exact position), as it does for a bot that was hit.
+    /// SAIN's combat layer then takes over from patrol (cover, search, suppression); without this the bot only stored the area and kept walking its patrol.
+    /// </summary>
+    private void MarkKnown(Enemy enemy, Vector3 point)
+    {
+        if (enemy == null || enemy.Hearing == null || !GlobalSettings.Fork.ShotAlertMarksKnown)
+        {
+            return;
+        }
+        SAINHearingReport report = new()
+        {
+            position = point,
+            soundType = SAINSoundType.Shot,
+            placeType = EEnemyPlaceType.Hearing,
+            isDanger = true,
+            shallReportToSquad = false,
+        };
+        enemy.Hearing.SetHeard(report, Time.time);
+        enemy.Hearing.EnemyHeardFromPeace = false;
     }
 
     /// <summary>A squadmate's hit or kill: this bot reacts after a short delay (not at once).</summary>

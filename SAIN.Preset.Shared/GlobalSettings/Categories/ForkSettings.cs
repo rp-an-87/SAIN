@@ -1980,6 +1980,12 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(0.1f, 10f, 10f)]
     public float ShotCoverEmptyBackoffMax = 2f;
 
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Alerts And Reports Mark The Player Known")]
+    [Description("On = a bot that gets an alert (hit, close bullet, kill, squad alert, man-down) or a report about the player takes the player as a known enemy at the rough point (never the exact position): SAIN's combat layer then takes over from patrol and runs the cover, search and suppression logic. Off = the bot only stores the rough area and keeps walking its patrol.")]
+    public bool ShotAlertMarksKnown = true;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);
