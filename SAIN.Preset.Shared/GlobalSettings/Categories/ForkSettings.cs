@@ -1989,22 +1989,29 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction/Duel")]
     [Name("Duel Retreat Enabled")]
-    [Description("A bot that has been seeing the player for a long time, has had hits or close bullets of the player meanwhile and has not hit the player itself in that time gives the position up (not at close range): a full retreat out of the player's sight, then the normal hold and investigation. Off = it keeps fighting.")]
+    [Description("A bot that keeps firing at the player while seeing it for a while (see the times below) without hitting it once gives the position up (not at close range): a full retreat out of the player's sight, then the normal hold and investigation. Off = it keeps fighting.")]
     public bool ShotDuelRetreatEnabled = true;
 
     [DataMember]
     [Category("Shot Reaction/Duel")]
-    [Name("Duel: Seen For (s)")]
-    [Description("Seconds the bot has to have seen the player in total (gaps under 15 s count as one sighting).")]
-    [MinMax(10f, 600f, 1f)]
-    public float ShotDuelSeenTime = 60f;
+    [Name("Duel: Firing At The Player For, Min (s)")]
+    [Description("The shortest time (seconds) a bot keeps firing at the player while seeing it, without hitting it once, before it gives the position up. Each bot picks a random time between Min and Max.")]
+    [MinMax(5f, 300f, 1f)]
+    public float ShotDuelTimeMin = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel: Firing At The Player For, Max (s)")]
+    [Description("The longest time (seconds) of that duel. A hit by the bot on the player resets the clock.")]
+    [MinMax(5f, 300f, 1f)]
+    public float ShotDuelTimeMax = 40f;
 
     [DataMember]
     [Category("Shot Reaction/Duel")]
     [Name("Duel: Shots On It Needed")]
-    [Description("Hits by the player on this bot, or bullets of the player passing close to it, within the window below. The bot must not have hit the player itself in the same time.")]
-    [MinMax(1f, 10f, 1f)]
-    public float ShotDuelShots = 2f;
+    [Description("Hits by the player on this bot, or bullets of the player passing close to it, within the Hit Window. 0 = the player does not have to shoot at it at all (a bot that keeps missing the player retreats on its own).")]
+    [MinMax(0f, 10f, 1f)]
+    public float ShotDuelShots = 0f;
 
     [DataMember]
     [Category("Shot Reaction/Duel")]
