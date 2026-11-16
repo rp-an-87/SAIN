@@ -2144,14 +2144,14 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Duel")]
-    [Name("Duel Retreat Distance Multiplier")]
+    [Name("Duel Leave Distance Multiplier")]
     [Description("A bot that gives up a duel (it insisted on shooting without hitting) relocates this many times the normal relocate distance (Relocate Min/Max). 1.5 = 60 to 120 m with the default 40 to 80 m.")]
     [MinMax(1f, 6f, 10f)]
     public float ShotDuelDistanceMult = 1.5f;
 
     [DataMember]
     [Category("Shot Reaction/Duel")]
-    [Name("Duel Retreat Distance Multiplier Max")]
+    [Name("Duel Leave Distance Multiplier Max")]
     [Description("Every repeat of a duel retreat inside the Repeat Window adds 0.5 to the multiplier, up to this value: a bot that keeps coming back to shoot retreats further each time.")]
     [MinMax(1f, 10f, 10f)]
     public float ShotDuelDistanceMultMax = 3f;
@@ -2215,9 +2215,30 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction/Duel")]
     [Name("Duel Push Resolve")]
-    [Description("A bot whose resolve (personality, reach against the distance, squad nearby, health) is at least this and that is not being pulled away does not retreat when the clock ends: it keeps fighting. 1 = never.")]
+    [Description("A bot whose resolve (personality, reach against the distance, squad nearby, health) is at least this and that is not being pulled away does not retreat when the clock ends: it pushes, cover to cover toward the player (the investigate rules). 1 = never.")]
     [MinMax(0f, 1f, 100f)]
     public float ShotDuelPushResolve = 0.75f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Push Time (s)")]
+    [Description("The longest a bot pushes toward the player (cover to cover) before it goes back to normal combat.")]
+    [MinMax(5f, 180f, 1f)]
+    public float ShotDuelPushTime = 30f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Push Stops At (share of reach)")]
+    [Description("The push ends when the player is inside this share of the bot's weapon reach (0.6 = 60%): it is close enough to hit and fights from there.")]
+    [MinMax(0.1f, 1f, 100f)]
+    public float ShotDuelPushStopReach = 0.6f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Push Aborts At Pull")]
+    [Description("A bot that pushes and takes this much pull (missed bursts, hits on it) is losing: the push ends and it retreats instead.")]
+    [MinMax(0.1f, 0.8f, 100f)]
+    public float ShotDuelPushAbortPull = 0.5f;
 
     public override void Init(List<ISAINSettings> list)
     {

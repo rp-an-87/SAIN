@@ -2008,6 +2008,10 @@ public class ShotReactionClass : BotComponentClassBase
     public bool TryGetDecision(Enemy enemy, out ECombatDecision decision)
     {
         decision = ECombatDecision.None;
+        if (_pushUntil > 0f && TryPushDecision(enemy, Time.time, out decision))
+        {
+            return true;
+        }
         if (Relocating)
         {
             if (enemy != _enemy || !ContinueRelocating(enemy))
@@ -3796,6 +3800,139 @@ public class ShotReactionClass : BotComponentClassBase
         _duelLastTrigger = trigger;
     }
 
+    private float _pushUntil;
+    private Enemy _pushEnemy;
+    private float _pushRunUntil;
+
+    private void StartPush(Enemy enemy, float now)
+    {
+        _pushEnemy = enemy;
+        _pushUntil = now + GlobalSettings.Fork.ShotDuelPushTime;
+        _pushRunUntil = 0f;
+        _noHopUntil = 0f;
+        _hopBestDistance = float.MaxValue;
+        _hopProgressTime = now;
+        _hopHold = HopHoldTime();
+    }
+
+    private void EndPush(string why)
+    {
+        if (_pushUntil <= 0f)
+        {
+            return;
+        }
+        _pushUntil = 0f;
+        _pushEnemy = null;
+        _pushRunUntil = 0f;
+        Bot.Cover.StopAdvance();
+        SprintWhileInvestigating = false;
+        LogEvent($"duel push over: {why}");
+    }
+
+    /// <summary>
+    /// The duel objective is to push: cover to cover toward the player with the investigate rules (hold each cover a few seconds, sprint to the next one that is closer),
+    /// until it is inside part of its weapon's reach, the time runs out, there is no closer cover, or the pull to leave grows (it is losing: then it retreats after all).
+    /// False = the normal SAIN decisions run (the bot fights from where it is).
+    /// </summary>
+    private bool TryPushDecision(Enemy enemy, float now, out ECombatDecision decision)
+    {
+        decision = ECombatDecision.None;
+        ForkSettings fork = GlobalSettings.Fork;
+        if (enemy != _pushEnemy)
+        {
+            return false;
+        }
+        if (!Enemy.IsEnemyActive(_pushEnemy) || Relocating || Outcome != EShotReaction.None || OnStationary())
+        {
+            EndPush(Relocating ? "another relocation" : "enemy gone or another reaction");
+            return false;
+        }
+        if (now >= _pushUntil)
+        {
+            EndPush("time is up");
+            return false;
+        }
+        float distance = enemy.RealDistance;
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        if (IsCloseRange(distance) || distance <= reach * fork.ShotDuelPushStopReach)
+        {
+            EndPush($"close enough ({distance:0} m, reach {reach:0} m)");
+            return false;
+        }
+        float pull = DuelPull(now);
+        if (pull >= fork.ShotDuelPushAbortPull)
+        {
+            EndPush($"it is losing (pull {pull:0.00}), retreats instead");
+            // The duel clock is over at once: the next duel tick turns it into a retreat.
+            _duelSeen = Mathf.Max(_duelTarget, 1f);
+            _duelCooldownUntil = 0f;
+            return false;
+        }
+        SprintWhileInvestigating = false;
+        Vector3 area = enemy.EnemyPosition;
+        if (Bot.Cover.AdvanceActive)
+        {
+            float hopAge = now - Bot.Cover.AdvanceStartTime;
+            bool stalled = hopAge > HOP_STALL_TIME && !Bot.Mover.Moving && Bot.Cover.CoverPoint_MovingTo == null;
+            var hopTarget = Bot.Cover.CoverPoint_MovingTo;
+            if (hopTarget != null)
+            {
+                float hopDistance = Vector3.Distance(Bot.Position, hopTarget.Position);
+                if (hopDistance < _hopBestDistance - 1f)
+                {
+                    _hopBestDistance = hopDistance;
+                    _hopProgressTime = now;
+                }
+            }
+            bool noProgress = now - _hopProgressTime > fork.ShotHopNoProgressTime;
+            if (hopAge <= fork.ShotHopMaxTime && !stalled && !noProgress)
+            {
+                decision = ECombatDecision.SeekCover;
+                return true;
+            }
+            Bot.Cover.StopAdvance();
+            _noHopUntil = now + HOP_RETRY_DELAY;
+        }
+        bool inCover = Bot.Cover.CoverInUse != null;
+        if (inCover && Bot.Cover.TimeHeldInCover < _hopHold)
+        {
+            decision = ECombatDecision.SeekCover;
+            return true;
+        }
+        if (now >= _noHopUntil && Bot.Cover.StartAdvanceHop(area))
+        {
+            _hopBestDistance = float.MaxValue;
+            _hopProgressTime = now;
+            _hopHold = HopHoldTime();
+            _pushRunUntil = 0f;
+            LogEvent($"duel push: next cover closer to the player ({distance:0} m away)");
+            decision = ECombatDecision.SeekCover;
+            return true;
+        }
+        if (_pushRunUntil > 0f)
+        {
+            if (now < _pushRunUntil)
+            {
+                SprintWhileInvestigating = true;
+                decision = ECombatDecision.Search;
+                return true;
+            }
+            EndPush("the run is over");
+            return false;
+        }
+        if (!inCover)
+        {
+            // No closer cover and in the open: a short sprint toward the player.
+            _pushRunUntil = now + fork.ShotAdvanceNoCoverTime;
+            LogEvent($"duel push: no closer cover, sprinting toward the player for up to {fork.ShotAdvanceNoCoverTime:0} s");
+            SprintWhileInvestigating = true;
+            decision = ECombatDecision.Search;
+            return true;
+        }
+        EndPush("no closer cover");
+        return false;
+    }
+
     /// <summary>The pull to leave (0..0.8): bursts that missed in the miss window and hits or close bullets of the player on this bot.</summary>
     private float DuelPull(float now)
     {
@@ -4002,11 +4139,12 @@ public class ShotReactionClass : BotComponentClassBase
         float reachNow = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
         if (resolve >= fork.ShotDuelPushResolve && pull < 0.3f && distance <= reachNow)
         {
-            // Winning or at least not losing: no retreat. The bot goes on fighting in normal combat (a real advance toward the player is not built yet).
-            LogEvent($"duel: keeps fighting (resolve {resolve:0.00}, pull {pull:0.00}, {_duelBursts.Count} missed bursts, player at {distance:0} m)");
+            // Winning, or at least not losing: the objective is to push. It goes cover to cover toward the player (see TryPushDecision) instead of retreating.
+            LogEvent($"duel push: resolve {resolve:0.00}, pull {pull:0.00}, {_duelBursts.Count} missed bursts, player at {distance:0} m, goes cover to cover toward it for up to {fork.ShotDuelPushTime:0} s");
             _duelSeen = 0f;
             _duelBursts.Clear();
             _duelCooldownUntil = now + 20f;
+            StartPush(enemy, now);
             return;
         }
         float seen = _duelSeen;
