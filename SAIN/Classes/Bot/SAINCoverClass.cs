@@ -213,7 +213,7 @@ public class SAINCoverClass : BotComponentClassBase
             {
                 LogShotCover(
                     $"cover search: picked candidate {i + 1} of {_coverPoints.Count}, path {coverPoint.PathData.PathLength:0} m, sprint {_shallSprint} ({_lastSprintReason}), "
-                        + $"cover '{coverPoint.Collider?.name}' layer {(coverPoint.Collider != null ? LayerMask.LayerToName(coverPoint.Collider.gameObject.layer) : "?")}{(IsFoliage(coverPoint) ? " (foliage)" : "")}"
+                        + $"cover '{coverPoint.Collider?.name}' layer {(coverPoint.Collider != null ? LayerMask.LayerToName(coverPoint.Collider.gameObject.layer) : "?")}{(IsFoliage(coverPoint) ? " (foliage)" : "")}{(IsThin(coverPoint) ? " (thin)" : "")}"
                 );
                 return coverPoint;
             }
@@ -273,9 +273,46 @@ public class SAINCoverClass : BotComponentClassBase
         return far > 0f && BlocksSight(shotArea, point) ? far : 0f;
     }
 
+    private static readonly Dictionary<int, bool> _thinCache = [];
+    private static readonly string[] _thinTokens = ["thin", "plastic", "glass", "cardboard", "cloth", "fabric"];
+
+    /// <summary>True if the cover's collider name says it is made of something thin (names like 'Biotoilet_01_Open_BALLISTIC_plastic', 'Wood_box_01_closed_BALLISTIC_Woodthin').</summary>
+    public static bool IsThin(CoverPoint point)
+    {
+        Collider collider = point?.Collider;
+        if (collider == null)
+        {
+            return false;
+        }
+        int id = collider.GetInstanceID();
+        if (_thinCache.TryGetValue(id, out bool thin))
+        {
+            return thin;
+        }
+        string name = collider.name != null ? collider.name.ToLowerInvariant() : "";
+        thin = false;
+        for (int i = 0; i < _thinTokens.Length; i++)
+        {
+            if (name.Contains(_thinTokens[i]))
+            {
+                thin = true;
+                break;
+            }
+        }
+        _thinCache[id] = thin;
+        return thin;
+    }
+
+    private float _shotHoldSince;
+
     private float CoverCost(CoverPoint point)
     {
         float cost = point.PathData.PathLength;
+        // Fork: during a shot reaction thin cover (plastic, thin metal or wood, glass) stops nothing: it counts as farther away.
+        if (_shotLogUntil >= Time.time && IsThin(point))
+        {
+            cost += GlobalSettingsClass.Instance.Fork.ShotCoverThinPenalty;
+        }
         if (IsFoliage(point))
         {
             float quality = _shotLogUntil >= Time.time ? FoliageQuality(point.Position, _shotAwayFrom) : 0f;
@@ -700,6 +737,14 @@ public class SAINCoverClass : BotComponentClassBase
                 SetCoverSeekingState(ECoverSeekingState.HoldInCover);
                 return;
             }
+            if (Bot.ShotReaction.WideCoverSearch && Time.time - _shotHoldSince < GlobalSettingsClass.Instance.Fork.ShotCoverHold)
+            {
+                // The next shot moves the guessed shooter position and flags good cover as bad: during a shot reaction the bot keeps its cover a few seconds (no running between props).
+                Bot.Mover.GoToCoverPoint(CoverInUse, false, ESprintUrgency.High);
+                _shallSprint = false;
+                SetCoverSeekingState(ECoverSeekingState.HoldInCover);
+                return;
+            }
             LogShotCover("cover in use went bad, dropped");
             CoverInUse = null;
         }
@@ -790,6 +835,10 @@ public class SAINCoverClass : BotComponentClassBase
             return;
         }
         LogShotCover($"cover state {CoverSeekingState} -> {behavior}");
+        if (behavior == ECoverSeekingState.HoldInCover)
+        {
+            _shotHoldSince = Time.time;
+        }
 
         switch (behavior)
         {

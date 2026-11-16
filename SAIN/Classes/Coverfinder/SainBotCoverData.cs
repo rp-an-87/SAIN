@@ -8,7 +8,7 @@ public class SainBotCoverData()
     public List<CoverPoint> CoverPoints { get; } = [];
     public List<SainBotColliderData> ValidCollidersList { get; } = [];
 
-    private const int PRELLOCATED_SIZE = 500;
+    private const int PRELLOCATED_SIZE = 1000;
     private readonly Collider[] _preAllocatedColliderArray = new Collider[PRELLOCATED_SIZE];
     private readonly HashSet<Collider> validCollidersHashSet = [];
 
@@ -38,14 +38,13 @@ public class SainBotCoverData()
         return ValidCollidersList.Count;
     }
 
-    public void HandleLists(Vector3 origin)
+    public void HandleLists(Vector3 origin, float maxDistance = 50f)
     {
         const int MIN_COLLIDERS = 30;
-        const float MAX_DISTANCE = 50f;
 
         UpdateColliderDistances(ValidCollidersList, origin);
         SortCollidersByDistance(ValidCollidersList, origin);
-        ClearCollidersOverDistance(ValidCollidersList, validCollidersHashSet, MAX_DISTANCE, MIN_COLLIDERS);
+        ClearCollidersOverDistance(ValidCollidersList, validCollidersHashSet, maxDistance, MIN_COLLIDERS);
         //Logger.LogDebug($"Currently {ValidCollidersList.Count} valid colliders");
     }
 

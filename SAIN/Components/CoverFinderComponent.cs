@@ -105,6 +105,7 @@ public class CoverFinderComponent : BotComponentBase
     }
 
     private float _nextGetCollidersTime;
+    private bool _wideSearch;
     private readonly SainBotCoverData CoverData = new();
 
     private IEnumerator FindCoverLoop()
@@ -118,20 +119,30 @@ public class CoverFinderComponent : BotComponentBase
                 int max = 5;
                 CurrentStatus = ECoverFinderStatus.SearchingColliders;
 
+                // Fork: during a shot reaction the search box is wider and taller (a bot on a roof also sees cover inside and below the building).
+                bool wide = Bot.ShotReaction.WideCoverSearch;
+                if (wide != _wideSearch)
+                {
+                    _wideSearch = wide;
+                    _nextGetCollidersTime = 0f;
+                }
+                var coverFork = SAINPlugin.LoadedPreset.GlobalSettings.Fork;
+                float searchRadius = wide ? coverFork.ShotCoverSearchRadius : 35f;
+                float searchHeight = wide ? coverFork.ShotCoverSearchHeight : 5f;
                 if (_nextGetCollidersTime < Time.time)
                 {
                     _nextGetCollidersTime = Time.time + 4;
                     SainBotCoverData.BotColliderQueryParams queryParams = new()
                     {
                         origin = Bot.NavMeshPosition + Vector3.up * 0.25f,
-                        halfExtents = new Vector3(35, 5, 35),
+                        halfExtents = new Vector3(searchRadius, searchHeight, searchRadius),
                         mask = LayersMaskController.HighPolyWithTerrainNoGrassMask,
                         minColliderSize = new(0.25f, GlobalSettingsClass.Instance.General.Cover.CoverMinHeight, 0.25f),
                         maxColliderSize = new(30f, 30f, 30f),
                     };
                     CoverData.OverlapBoxAndFilter(queryParams);
                 }
-                CoverData.HandleLists(Bot.NavMeshPosition);
+                CoverData.HandleLists(Bot.NavMeshPosition, wide ? searchRadius : 50f);
 
                 _totalChecked = 0;
 

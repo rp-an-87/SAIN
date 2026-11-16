@@ -886,6 +886,40 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public float ShotFoliagePenalty = 30f;
 
     [DataMember]
+    [Category("Shot Reaction/Cover quality")]
+    [Name("Wide Cover Search")]
+    [Description("While a bot is in a shot reaction (hiding, retreating, investigating) its cover search looks further around and further up and down, so a bot on a roof also sees cover inside and below the building. Off = the normal search box (70 x 70 m, 5 m up and down).")]
+    public bool ShotCoverWideSearch = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover quality")]
+    [Name("Cover Search Radius")]
+    [Description("Half width (meters) of the cover search box during a shot reaction (normal bots: 35).")]
+    [MinMax(20f, 120f, 1f)]
+    public float ShotCoverSearchRadius = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover quality")]
+    [Name("Cover Search Height")]
+    [Description("Half height (meters) of the cover search box during a shot reaction (normal bots: 5): how far up and down it looks for cover.")]
+    [MinMax(5f, 40f, 1f)]
+    public float ShotCoverSearchHeight = 15f;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover quality")]
+    [Name("Thin Cover Penalty")]
+    [Description("Cover whose collider name says thin, plastic, glass, cardboard or cloth (a rifle round goes through it) counts as this many meters farther away during a shot reaction, so a solid object a bit further off wins. 0 = thin cover is as good as a wall.")]
+    [MinMax(0f, 100f, 1f)]
+    public float ShotCoverThinPenalty = 25f;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover quality")]
+    [Name("Cover Hold Time")]
+    [Description("After a bot reaches its cover during a shot reaction it keeps it at least this many seconds, even when the next shot moves the guessed shooter position and marks the cover as bad (no running around between props). 0 = off.")]
+    [MinMax(0f, 15f, 10f)]
+    public float ShotCoverHold = 4f;
+
+    [DataMember]
     [Category("Shot Reaction/Cover quality (bushes)")]
     [Name("Bush Fade Start Distance")]
     [Description("A bush closer than this to the shot area keeps the full penalty. Beyond it, and out of the shot area line of sight, the penalty fades.")]

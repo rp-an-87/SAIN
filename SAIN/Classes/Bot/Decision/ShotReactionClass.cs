@@ -414,6 +414,12 @@ public class ShotReactionClass : BotComponentClassBase
         return Mathf.Max(sight, GlobalSettings.Fork.ShotUncertaintyMinSight);
     }
 
+    /// <summary>True while the bot is in a shot reaction (hiding, retreating, investigating): its cover search is wider and taller (see CoverFinderComponent).</summary>
+    public bool WideCoverSearch
+    {
+        get { return Enabled && GlobalSettings.Fork.ShotCoverWideSearch && (Outcome != EShotReaction.None || Relocating); }
+    }
+
     /// <summary>The uncertainty of the rough shot area while it is fresh (0 when there is no fresh area).</summary>
     public float FreshUncertainty
     {
