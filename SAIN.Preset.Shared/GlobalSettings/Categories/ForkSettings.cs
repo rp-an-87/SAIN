@@ -1986,6 +1986,40 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("On = a bot that gets an alert (hit, close bullet, kill, squad alert, man-down) or a report about the player takes the player as a known enemy at the rough point (never the exact position): SAIN's combat layer then takes over from patrol and runs the cover, search and suppression logic. Off = the bot only stores the rough area and keeps walking its patrol.")]
     public bool ShotAlertMarksKnown = true;
 
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Retreat Enabled")]
+    [Description("A bot that has been seeing the player for a long time, has been hit several times meanwhile and has the player beyond its effective weapon reach (it cannot hit back) gives the position up: a full retreat out of the player's sight, then the normal hold and investigation. Off = it keeps fighting.")]
+    public bool ShotDuelRetreatEnabled = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel: Seen For (s)")]
+    [Description("Seconds the bot has to have seen the player in total (gaps under 15 s count as one sighting).")]
+    [MinMax(10f, 600f, 1f)]
+    public float ShotDuelSeenTime = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel: Hits Needed")]
+    [Description("Hits by the player on this bot within the window below.")]
+    [MinMax(1f, 10f, 1f)]
+    public float ShotDuelHits = 3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel: Hit Window (s)")]
+    [Description("The hits have to fall within this many seconds.")]
+    [MinMax(10f, 600f, 1f)]
+    public float ShotDuelWindow = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel: Cooldown (s)")]
+    [Description("A bot that has made a duel retreat does not make another for this many seconds.")]
+    [MinMax(0f, 1200f, 1f)]
+    public float ShotDuelCooldown = 120f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

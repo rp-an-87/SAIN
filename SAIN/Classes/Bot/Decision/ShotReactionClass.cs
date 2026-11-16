@@ -530,6 +530,7 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     public void OnHit(Enemy enemy)
     {
+        NoteDuelHit(enemy);
         if (!AppliesTo(enemy))
         {
             LogSkipped(enemy, true);
@@ -1582,6 +1583,16 @@ public class ShotReactionClass : BotComponentClassBase
     /// Delivers a report to one group (this bot is its member closest to the player): one rough point (as rough as this bot would get from a shot, narrowed by its count)
     /// written to the group's record, then every member takes the point as its rough area with its own uncertainty and count.
     /// </summary>
+    private sealed class GroupPoint
+    {
+        public Vector3 Point;
+        public float Uncertainty;
+        public float Time;
+        public IPlayer Enemy;
+    }
+
+    private static readonly Dictionary<BotsGroup, GroupPoint> _groupPoints = [];
+
     private void DeliverToGroup(PendingReport report, BotsGroup group, float now)
     {
         ForkSettings fork = GlobalSettings.Fork;
@@ -1591,7 +1602,6 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         float factor = NoteInformation(now);
-        Enemy known = Bot.EnemyController?.GetEnemy(report.Enemy.ProfileId, false);
         Vector3 playerPosition = report.Enemy.Position;
         float distance = (playerPosition - Bot.Position).magnitude;
         for (int i = 0; i < group.MembersCount; i++)
@@ -1602,11 +1612,33 @@ public class ShotReactionClass : BotComponentClassBase
                 distance = Mathf.Min(distance, (playerPosition - member.Position).magnitude);
             }
         }
-        float uncertainty = Shrunk(ComputeUncertainty(report.Enemy, distance, false, known), FloorAt(fork.AreaFloorOuter, distance, known), factor);
-        float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
-        Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
-        Vector3 delta = new Vector3(offset.x, 0f, offset.y);
-        Vector3 point = SnapKeepingRing(report.Position + delta, report.Position, radius * fork.ShotAreaInnerFraction, radius);
+        Vector3 point;
+        float uncertainty;
+        // The group's point stays where it is until a new piece of information narrows it (at most once per cooldown): a point that jumps every report
+        // makes the covers valid, then invalid, and the bots keep choosing again.
+        if (_groupPoints.TryGetValue(group, out GroupPoint last) && last.Enemy == report.Enemy && now - last.Time < fork.AreaShrinkCooldown)
+        {
+            point = last.Point;
+            uncertainty = last.Uncertainty;
+        }
+        else
+        {
+            Enemy known = Bot.EnemyController?.GetEnemy(report.Enemy.ProfileId, false);
+            uncertainty = Shrunk(ComputeUncertainty(report.Enemy, distance, false, known), FloorAt(fork.AreaFloorOuter, distance, known), factor);
+            float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
+            Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
+            Vector3 delta = new Vector3(offset.x, 0f, offset.y);
+            point = SnapKeepingRing(report.Position + delta, report.Position, radius * fork.ShotAreaInnerFraction, radius);
+            if (_groupPoints.Count > 32)
+            {
+                _groupPoints.Clear();
+            }
+            _groupPoints[group] = new GroupPoint { Point = point, Uncertainty = uncertainty, Time = now, Enemy = report.Enemy };
+            if (fork.ShotReactionLog)
+            {
+                LogEvent($"report from {report.From}: new rough point {(point - report.Position).magnitude:0} m from the player (uncertainty {uncertainty:0} m at {distance:0} m, piece #{_knowCount})");
+            }
+        }
         group.SetEnemyPos(report.Enemy, point, report.WeaponRoot + (point - report.Position), report.Type);
         BotManagerComponent manager = BotManagerComponent.Instance;
         for (int i = 0; i < group.MembersCount; i++)
@@ -1616,11 +1648,6 @@ public class ShotReactionClass : BotComponentClassBase
             {
                 other.ShotReaction.TakeGroupPoint(report.Enemy, point, now);
             }
-        }
-        if (_knowCount != _reportLoggedCount)
-        {
-            _reportLoggedCount = _knowCount;
-            LogEvent($"report from {report.From}: rough point {(point - report.Position).magnitude:0} m from the player (uncertainty {uncertainty:0} m at {distance:0} m, piece #{_knowCount})");
         }
     }
 
@@ -3214,11 +3241,13 @@ public class ShotReactionClass : BotComponentClassBase
     {
         float now = Time.time;
         bool arrived = (Bot.Position - RelocatePoint).sqrMagnitude < RELOCATE_ARRIVED_DISTANCE * RELOCATE_ARRIVED_DISTANCE;
-        if (now >= _relocateEnd || arrived || (SeesShooter(enemy) && enemy.CanShoot) || !Enabled)
+        // A duel retreat goes on although the bot sees the player (that is the whole point of it).
+        bool sees = !_forcedRetreat && SeesShooter(enemy) && enemy.CanShoot;
+        if (now >= _relocateEnd || arrived || sees || !Enabled)
         {
             string why = now >= _relocateEnd ? "time limit" : arrived ? "arrived" : !Enabled ? "switched off" : "the bot sees the shooter";
             StopRelocating(now, why);
-            if (Enabled && (arrived || now >= _relocateEnd) && !(SeesShooter(enemy) && enemy.CanShoot))
+            if (Enabled && (arrived || now >= _relocateEnd) && !sees)
             {
                 StartPostRetreat(enemy, now);
             }
@@ -3229,6 +3258,7 @@ public class ShotReactionClass : BotComponentClassBase
 
     private void StopRelocating(float now, string reason)
     {
+        _forcedRetreat = false;
         LogEvent($"relocation over: {reason}");
         StartTrace(now);
         Bot.Cover.ClearShotState();
@@ -3460,6 +3490,90 @@ public class ShotReactionClass : BotComponentClassBase
         }
     }
 
+    // ---- Duel retreat: a long fight the bot cannot win ----
+
+    private readonly Queue<float> _duelHits = new();
+    private float _duelSeen;
+    private float _duelLastSeen;
+    private float _duelLastCheck;
+    private float _nextDuelCheck;
+    private float _duelCooldownUntil;
+    private bool _forcedRetreat;
+
+    /// <summary>The player hit this bot (seen or not): counts toward a duel retreat.</summary>
+    private void NoteDuelHit(Enemy enemy)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (enemy == null || !fork.ShotDuelRetreatEnabled || !Enabled || (fork.ShotReactionPlayerOnly && enemy.EnemyPlayer?.IsYourPlayer != true))
+        {
+            return;
+        }
+        _duelHits.Enqueue(Time.time);
+    }
+
+    /// <summary>
+    /// A bot that has been seeing the player for a long time (ShotDuelSeenTime seconds in total, gaps under 15 s), has been hit ShotDuelHits times in the last ShotDuelWindow seconds
+    /// and has the player beyond its effective reach (it cannot hit back) gives the position up: a full retreat out of sight, then the normal hold and investigation.
+    /// Once per ShotDuelCooldown. Gunners on a mounted gun are not affected (they leave it when it cannot answer).
+    /// </summary>
+    private void TryDuelRetreat(float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (!fork.ShotDuelRetreatEnabled || now < _nextDuelCheck || !Enabled)
+        {
+            return;
+        }
+        float dt = Mathf.Min(now - _duelLastCheck, 2f);
+        _duelLastCheck = now;
+        _nextDuelCheck = now + 1f;
+        while (_duelHits.Count > 0 && now - _duelHits.Peek() > fork.ShotDuelWindow)
+        {
+            _duelHits.Dequeue();
+        }
+        Enemy enemy = Bot.GoalEnemy;
+        if (enemy == null || enemy.IsAI || !Enemy.IsEnemyActive(enemy) || (fork.ShotReactionPlayerOnly && enemy.EnemyPlayer?.IsYourPlayer != true))
+        {
+            if (now - _duelLastSeen > 15f)
+            {
+                _duelSeen = 0f;
+            }
+            return;
+        }
+        if (enemy.IsVisible)
+        {
+            _duelSeen = Mathf.Min(_duelSeen + dt, 600f);
+            _duelLastSeen = now;
+        }
+        else if (now - _duelLastSeen > 15f)
+        {
+            _duelSeen = 0f;
+        }
+        if (Relocating || now < _duelCooldownUntil || _duelSeen < fork.ShotDuelSeenTime || _duelHits.Count < Mathf.RoundToInt(fork.ShotDuelHits))
+        {
+            return;
+        }
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        float distance = enemy.RealDistance;
+        if (distance <= reach * FIGHT_REACH_LIMIT || OnStationary())
+        {
+            return;
+        }
+        float seen = _duelSeen;
+        int hits = _duelHits.Count;
+        _enemy = enemy;
+        _forcedRetreat = true;
+        if (TryStartRelocating())
+        {
+            _duelCooldownUntil = now + fork.ShotDuelCooldown;
+            _duelSeen = 0f;
+            _duelHits.Clear();
+            LogEvent($"duel retreat: sees the player for {seen:0} s, hit {hits} times in {fork.ShotDuelWindow:0} s, player at {distance:0} m (reach {reach:0} m)");
+            return;
+        }
+        _forcedRetreat = false;
+        _duelCooldownUntil = now + 30f;
+    }
+
     public override void ManualUpdate()
     {
         long started = ShotPerf.Start();
@@ -3476,6 +3590,7 @@ public class ShotReactionClass : BotComponentClassBase
         ProcessDeferredRadio(now);
         ProcessPendingRogueAlert(now);
         ProcessReports(now);
+        TryDuelRetreat(now);
         TickAreaSuppression(now);
         TryProximityInterrupt(now);
         TryOtherEnemyInterrupt(now);
