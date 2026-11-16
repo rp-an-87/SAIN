@@ -2790,7 +2790,15 @@ public class ShotReactionClass : BotComponentClassBase
         }
         _safetyThreshold = Mathf.Clamp(threshold, 0.5f, 0.95f);
         _postRetreat = true;
-        _holdMinUntil = now + POST_RETREAT_MIN_HOLD;
+        float minHold = POST_RETREAT_MIN_HOLD;
+        if (_longRetreat)
+        {
+            // After a duel or pressure retreat the bot stays away for at least this long, whatever its safety says.
+            _longRetreat = false;
+            minHold = Mathf.Max(minHold, fork.ShotLongRetreatMinHold);
+            hold = Mathf.Max(hold, minHold);
+        }
+        _holdMinUntil = now + minHold;
         _nextMobileHop = now + Random.Range(5f, 9f);
         _safetyCacheTime = -999f;
         _hideUntil = now + hold;
@@ -3752,6 +3760,18 @@ public class ShotReactionClass : BotComponentClassBase
     private float _duelCooldownUntil;
     private float _duelLastHitPlayer = -999f;
     private bool _forcedRetreat;
+    private int _duelRepeats;
+    private float _lastDuelRetreat = -999f;
+    private bool _longRetreat;
+
+    /// <summary>A distance for a retreat that is a multiple of the normal relocate distance (a random value between the relocate minimum and maximum).</summary>
+    private static float ScaledRelocateDistance(float mult)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float min = Mathf.Min(fork.ShotRelocateMinDistance, fork.ShotRelocateMaxDistance);
+        float max = Mathf.Max(fork.ShotRelocateMinDistance, fork.ShotRelocateMaxDistance);
+        return Random.Range(min, max) * Mathf.Max(mult, 0.1f);
+    }
 
     /// <summary>
     /// Rogues and Goons: the player keeps shooting near them (shots they hear, hits and close bullets at them or at Rogues and Goons within the shared radius) for a random
@@ -3806,13 +3826,14 @@ public class ShotReactionClass : BotComponentClassBase
         {
             AbandonStationary(stationary, now, "pressure retreat");
         }
-        bool started = TryStartRelocating();
+        bool started = TryStartRelocating(ScaledRelocateDistance(fork.RogueRetreatDistanceMult));
         _retreatDown = false;
         _pressure = 0f;
         if (started)
         {
             _pressureCooldownUntil = now + fork.RoguePressureCooldown;
-            LogEvent($"pressure retreat: {seconds:0} s of information about the player without seeing him (limit {_pressureTarget:0} s), going down: {fork.RogueRetreatDown}");
+            _longRetreat = true;
+            LogEvent($"pressure retreat: {seconds:0} s of information about the player without seeing him (limit {_pressureTarget:0} s), going down: {fork.RogueRetreatDown}, retreat distance x{fork.RogueRetreatDistanceMult:0.0}");
             return;
         }
         _forcedRetreat = false;
@@ -3888,12 +3909,21 @@ public class ShotReactionClass : BotComponentClassBase
         int hits = _duelHits.Count;
         _enemy = enemy;
         _forcedRetreat = true;
-        if (TryStartRelocating())
+        // A bot that insists on shooting relocates further: the distance is a multiple of the normal one, and grows with every repeat inside the repeat window.
+        if (now - _lastDuelRetreat > fork.ShotDuelRepeatWindow)
+        {
+            _duelRepeats = 0;
+        }
+        float mult = Mathf.Min(fork.ShotDuelDistanceMult + (_duelRepeats * 0.5f), Mathf.Max(fork.ShotDuelDistanceMult, fork.ShotDuelDistanceMultMax));
+        if (TryStartRelocating(ScaledRelocateDistance(mult)))
         {
             _duelCooldownUntil = now + fork.ShotDuelCooldown;
             _duelSeen = 0f;
             _duelHits.Clear();
-            LogEvent($"duel retreat: has been firing at the player for {seen:0} s without hitting it (limit {_duelTarget:0} s), {hits} hits or close bullets on it in {fork.ShotDuelWindow:0} s, player at {distance:0} m");
+            _duelRepeats++;
+            _lastDuelRetreat = now;
+            _longRetreat = true;
+            LogEvent($"duel retreat: has been firing at the player for {seen:0} s without hitting it (limit {_duelTarget:0} s), {hits} hits or close bullets on it in {fork.ShotDuelWindow:0} s, player at {distance:0} m, retreat distance x{mult:0.0} (repeat {_duelRepeats})");
             return;
         }
         _forcedRetreat = false;

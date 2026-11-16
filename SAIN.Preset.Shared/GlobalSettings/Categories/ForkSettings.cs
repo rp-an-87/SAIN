@@ -2142,6 +2142,41 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(5f, 600f, 1f)]
     public float GrenadeRangingMemory = 90f;
 
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Retreat Distance Multiplier")]
+    [Description("A bot that gives up a duel (it insisted on shooting without hitting) relocates this many times the normal relocate distance (Relocate Min/Max). 1.5 = 60 to 120 m with the default 40 to 80 m.")]
+    [MinMax(1f, 6f, 10f)]
+    public float ShotDuelDistanceMult = 1.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Retreat Distance Multiplier Max")]
+    [Description("Every repeat of a duel retreat inside the Repeat Window adds 0.5 to the multiplier, up to this value: a bot that keeps coming back to shoot retreats further each time.")]
+    [MinMax(1f, 10f, 10f)]
+    public float ShotDuelDistanceMultMax = 3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Repeat Window (s)")]
+    [Description("A duel retreat within this many seconds of the last one counts as a repeat (longer retreat distance).")]
+    [MinMax(30f, 1200f, 1f)]
+    public float ShotDuelRepeatWindow = 300f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Long Retreat Min Hold (s)")]
+    [Description("After a duel retreat or a Rogue pressure retreat the bot stays away at least this long (holding cover) before it may feel safe and investigate again.")]
+    [MinMax(0f, 300f, 1f)]
+    public float ShotLongRetreatMinHold = 45f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue pressure")]
+    [Name("Pressure Retreat Distance Multiplier")]
+    [Description("A Rogue or Goon that runs (pressure retreat) goes this many times the normal relocate distance (Relocate Min/Max) away.")]
+    [MinMax(1f, 6f, 10f)]
+    public float RogueRetreatDistanceMult = 2f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);
