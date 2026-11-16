@@ -2177,6 +2177,48 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(1f, 6f, 10f)]
     public float RogueRetreatDistanceMult = 2f;
 
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Time Floor (s)")]
+    [Description("The shortest the duel clock can get, however many misses or hits the bot has taken: it never gives up before this many seconds of dueling.")]
+    [MinMax(3f, 60f, 1f)]
+    public float ShotDuelTimeFloor = 8f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Burst Gap (s)")]
+    [Description("Trigger pulls closer together than this belong to one burst. A whole burst counts as one miss, however many bullets it has.")]
+    [MinMax(0.3f, 5f, 10f)]
+    public float ShotDuelBurstGap = 1.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Miss Window (s)")]
+    [Description("Only bursts that missed inside this window count toward the pull to leave. A hit by the bot on the player clears them.")]
+    [MinMax(5f, 120f, 1f)]
+    public float ShotDuelMissWindow = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Pull Per Missed Burst")]
+    [Description("Each missed burst cuts this share off the duel time (0.12 = 12%), and makes the retreat go further. Pull is capped at 80%.")]
+    [MinMax(0f, 0.5f, 100f)]
+    public float ShotDuelMissWeight = 0.12f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Pull Per Hit On The Bot")]
+    [Description("Each hit or close bullet of the player on the bot inside the Hit Window cuts this share off the duel time.")]
+    [MinMax(0f, 0.5f, 100f)]
+    public float ShotDuelHitWeight = 0.1f;
+
+    [DataMember]
+    [Category("Shot Reaction/Duel")]
+    [Name("Duel Push Resolve")]
+    [Description("A bot whose resolve (personality, reach against the distance, squad nearby, health) is at least this and that is not being pulled away does not retreat when the clock ends: it keeps fighting. 1 = never.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotDuelPushResolve = 0.75f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

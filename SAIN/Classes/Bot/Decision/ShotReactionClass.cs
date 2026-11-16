@@ -178,6 +178,7 @@ public class ShotReactionClass : BotComponentClassBase
             _duelLastHitPlayer = Time.time;
             // The bot is hitting its target: no duel retreat for now.
             _duelSeen = 0f;
+            _duelBursts.Clear();
         }
     }
 
@@ -3763,6 +3764,89 @@ public class ShotReactionClass : BotComponentClassBase
     private int _duelRepeats;
     private float _lastDuelRetreat = -999f;
     private bool _longRetreat;
+    private float _duelBase = 30f;
+    private float _duelLastTrigger = -999f;
+    private readonly List<float> _duelBursts = [];
+
+    /// <summary>
+    /// Counts the bot's bursts at the player while a duel clock runs: a burst is a run of trigger pulls with gaps under ShotDuelBurstGap, however long it is, and counts once.
+    /// Checked every frame (a float compare), because the 1 s duel tick would miss bursts. A hit by the bot on the player clears them (see OnBotHitEnemy).
+    /// </summary>
+    private void TrackDuelBursts(float now)
+    {
+        if (_duelSeen <= 0f)
+        {
+            return;
+        }
+        ShootData shootData = Bot.BotOwner?.ShootData;
+        if (shootData == null)
+        {
+            return;
+        }
+        float trigger = shootData.LastTriggerPressd;
+        if (trigger <= _duelLastTrigger + 0.001f)
+        {
+            return;
+        }
+        ForkSettings fork = GlobalSettings.Fork;
+        if (trigger - _duelLastTrigger > fork.ShotDuelBurstGap)
+        {
+            _duelBursts.Add(now);
+        }
+        _duelLastTrigger = trigger;
+    }
+
+    /// <summary>The pull to leave (0..0.8): bursts that missed in the miss window and hits or close bullets of the player on this bot.</summary>
+    private float DuelPull(float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        _duelBursts.RemoveAll(time => now - time > fork.ShotDuelMissWindow);
+        return Mathf.Clamp((_duelBursts.Count * fork.ShotDuelMissWeight) + (_duelHits.Count * fork.ShotDuelHitWeight), 0f, 0.8f);
+    }
+
+    /// <summary>
+    /// How stubborn this bot is in a duel (0..1): personality, the weapon's reach against the distance, a squad nearby and its health.
+    /// High = keeps fighting (and may push), low = gives the position up sooner and runs further.
+    /// </summary>
+    private float DuelResolve(Enemy enemy)
+    {
+        float resolve = 0.5f;
+        switch (Bot.Info.Personality)
+        {
+            case EPersonality.Wreckless:
+            case EPersonality.GigaChad:
+            case EPersonality.Chad:
+                resolve += 0.2f;
+                break;
+            case EPersonality.Rat:
+            case EPersonality.Timmy:
+            case EPersonality.Coward:
+                resolve -= 0.2f;
+                break;
+        }
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        float ratio = enemy.RealDistance / reach;
+        // Outranged: up to -0.3 at twice its reach or more; well inside its reach: +0.1.
+        resolve += ratio > 1f ? -0.3f * Mathf.Clamp01(ratio - 1f) : (ratio < 0.7f ? 0.1f : 0f);
+        ETagStatus health = Bot.Memory.Health.HealthStatus;
+        if (health == ETagStatus.BadlyInjured || health == ETagStatus.Dying)
+        {
+            resolve -= 0.3f;
+        }
+        int mates = 0;
+        if (Bot.Squad?.Members != null)
+        {
+            foreach (var member in Bot.Squad.Members.Values)
+            {
+                if (member != null && member != Bot && member.BotOwner != null && !member.BotOwner.IsDead && (member.Position - Bot.Position).sqrMagnitude <= 2500f)
+                {
+                    mates++;
+                }
+            }
+        }
+        resolve += mates > 0 ? 0.1f : -0.1f;
+        return Mathf.Clamp01(resolve);
+    }
 
     /// <summary>A distance for a retreat that is a multiple of the normal relocate distance (a random value between the relocate minimum and maximum).</summary>
     private static float ScaledRelocateDistance(float mult)
@@ -3887,7 +3971,9 @@ public class ShotReactionClass : BotComponentClassBase
         {
             if (_duelSeen <= 0f)
             {
-                _duelTarget = Random.Range(fork.ShotDuelTimeMin, Mathf.Max(fork.ShotDuelTimeMin, fork.ShotDuelTimeMax));
+                _duelBase = Random.Range(fork.ShotDuelTimeMin, Mathf.Max(fork.ShotDuelTimeMin, fork.ShotDuelTimeMax));
+                _duelBursts.Clear();
+                _duelLastTrigger = shootData.LastTriggerPressd;
             }
             _duelSeen = Mathf.Min(_duelSeen + dt, 600f);
             _duelLastSeen = now;
@@ -3896,13 +3982,31 @@ public class ShotReactionClass : BotComponentClassBase
         {
             _duelSeen = 0f;
         }
-        if (Relocating || now < _duelCooldownUntil || _duelSeen <= 0f || _duelSeen < _duelTarget || _duelHits.Count < Mathf.RoundToInt(fork.ShotDuelShots))
+        if (Relocating || now < _duelCooldownUntil || _duelSeen <= 0f)
+        {
+            return;
+        }
+        // The limit: the random base time, longer for a stubborn bot, cut by the pull of missed bursts and hits on it, never under the floor.
+        float resolve = DuelResolve(enemy);
+        float pull = DuelPull(now);
+        _duelTarget = Mathf.Max(fork.ShotDuelTimeFloor, _duelBase * Mathf.Lerp(0.6f, 1.4f, resolve) * (1f - pull));
+        if (_duelSeen < _duelTarget || _duelHits.Count < Mathf.RoundToInt(fork.ShotDuelShots))
         {
             return;
         }
         float distance = enemy.RealDistance;
         if (IsCloseRange(distance) || OnStationary())
         {
+            return;
+        }
+        float reachNow = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        if (resolve >= fork.ShotDuelPushResolve && pull < 0.3f && distance <= reachNow)
+        {
+            // Winning or at least not losing: no retreat. The bot goes on fighting in normal combat (a real advance toward the player is not built yet).
+            LogEvent($"duel: keeps fighting (resolve {resolve:0.00}, pull {pull:0.00}, {_duelBursts.Count} missed bursts, player at {distance:0} m)");
+            _duelSeen = 0f;
+            _duelBursts.Clear();
+            _duelCooldownUntil = now + 20f;
             return;
         }
         float seen = _duelSeen;
@@ -3914,7 +4018,9 @@ public class ShotReactionClass : BotComponentClassBase
         {
             _duelRepeats = 0;
         }
-        float mult = Mathf.Min(fork.ShotDuelDistanceMult + (_duelRepeats * 0.5f), Mathf.Max(fork.ShotDuelDistanceMult, fork.ShotDuelDistanceMultMax));
+        // Stubborn bots relocate shorter, timid ones and those taking a beating further.
+        int missed = _duelBursts.Count;
+        float mult = Mathf.Min((fork.ShotDuelDistanceMult * Mathf.Lerp(1.4f, 0.7f, resolve) * (1f + (pull * 0.5f))) + (_duelRepeats * 0.5f), Mathf.Max(fork.ShotDuelDistanceMult, fork.ShotDuelDistanceMultMax));
         if (TryStartRelocating(ScaledRelocateDistance(mult)))
         {
             _duelCooldownUntil = now + fork.ShotDuelCooldown;
@@ -3923,7 +4029,7 @@ public class ShotReactionClass : BotComponentClassBase
             _duelRepeats++;
             _lastDuelRetreat = now;
             _longRetreat = true;
-            LogEvent($"duel retreat: has been firing at the player for {seen:0} s without hitting it (limit {_duelTarget:0} s), {hits} hits or close bullets on it in {fork.ShotDuelWindow:0} s, player at {distance:0} m, retreat distance x{mult:0.0} (repeat {_duelRepeats})");
+            LogEvent($"duel retreat: has been firing at the player for {seen:0} s without hitting it (limit {_duelTarget:0} s), {hits} hits or close bullets on it in {fork.ShotDuelWindow:0} s, player at {distance:0} m, resolve {resolve:0.00}, pull {pull:0.00} ({missed} missed bursts), retreat distance x{mult:0.0} (repeat {_duelRepeats})");
             return;
         }
         _forcedRetreat = false;
@@ -3947,6 +4053,7 @@ public class ShotReactionClass : BotComponentClassBase
         ProcessDeferredRadio(now);
         ProcessPendingRogueAlert(now);
         ProcessReports(now);
+        TrackDuelBursts(now);
         TryDuelRetreat(now);
         TryPressureRetreat(now);
         TickAreaSuppression(now);
