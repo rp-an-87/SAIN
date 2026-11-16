@@ -1884,6 +1884,61 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(0f, 120f, 1f)]
     public float RogueManDownDelayMax = 40f;
 
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Rough Area Inner Fraction")]
+    [Description("The rough area of a shot, hit or alert is a random point in a ring around the shooter: not closer than this share of the area's radius. 0.4 = a 50 m area never lands within 20 m of the shooter, so a lucky draw cannot put a searching bot on top of the player. 0 = anywhere in the disk (old behaviour).")]
+    [MinMax(0f, 0.9f, 100f)]
+    public float ShotAreaInnerFraction = 0.4f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Reports: Rough Points")]
+    [Description("On = a report from another Rogue gives the receiver a point in a ring around the player, not the exact position, and the ring narrows with every further report (see below). Off = the exact position, delayed (Report Delay).")]
+    public bool RogueReportRough = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Report Ring Outer")]
+    [Description("Outer radius (meters) of the ring around the player for the first report a Rogue gets.")]
+    [MinMax(0f, 200f, 1f)]
+    public float RogueReportRingOuter = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Report Ring Inner")]
+    [Description("Inner radius (meters) of the first report's ring: the point is never closer to the player than this.")]
+    [MinMax(0f, 200f, 1f)]
+    public float RogueReportRingInner = 30f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Report Shrink Per Report")]
+    [Description("Both radii are multiplied by this for every further report within the Report Memory time (0.92 = 8% narrower each time, about 15 reports to reach the floor). 1 = the ring never narrows.")]
+    [MinMax(0.5f, 1f, 100f)]
+    public float RogueReportShrink = 0.92f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Report Floor Outer")]
+    [Description("The ring never gets narrower than this outer radius (meters). A mounted gun fires at it once this and the current radius are within its uncertainty limit (machine gun 30 m, grenade launcher 20 m).")]
+    [MinMax(0f, 100f, 1f)]
+    public float RogueReportFloorOuter = 25f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Report Floor Inner")]
+    [Description("The ring never gets a smaller inner radius than this (meters): a report never gives an exact position.")]
+    [MinMax(0f, 100f, 1f)]
+    public float RogueReportFloorInner = 12f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Report Memory")]
+    [Description("Seconds without a report after which a Rogue's ring starts wide again.")]
+    [MinMax(5f, 600f, 1f)]
+    public float RogueReportMemory = 60f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

@@ -268,7 +268,7 @@ namespace SAIN.Patches.Generic
                 return false;
             }
             float delay = Random.Range(fork.RogueReportDelayMin, Mathf.Max(fork.RogueReportDelayMin, fork.RogueReportDelayMax)) + distance * fork.RogueReportDelayPerMeter;
-            bot.ShotReaction.QueueReport(enemy, enemyPos, weaponRootLast, Time.time + delay);
+            bot.ShotReaction.QueueReport(enemy, enemyPos, weaponRootLast, Time.time + delay, reporter?.name);
             MountedHelpers.Log($"{owner.name}: report of {enemy?.Profile?.Nickname} from {reporter?.name} ({distance:0} m) arrives in {delay:0.0} s");
             return false;
         }

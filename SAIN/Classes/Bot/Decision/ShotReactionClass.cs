@@ -320,7 +320,7 @@ public class ShotReactionClass : BotComponentClassBase
 
         float uncertainty = ComputeUncertainty(enemy.EnemyPlayer, distance, hit, enemy);
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
-        Vector2 offset = Random.insideUnitCircle * radius;
+        Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 point = enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y);
         if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, radius * 0.5f), NavMesh.AllAreas))
         {
@@ -442,6 +442,18 @@ public class ShotReactionClass : BotComponentClassBase
         get { return Time.time - _vaguePositionTime <= VAGUE_POSITION_MAX_AGE ? _vagueUncertainty : 0f; }
     }
 
+    /// <summary>
+    /// A random offset in the ring between inner and outer (uniform over the ring's area): the rough area is never closer to the shooter than inner,
+    /// so a lucky draw cannot put a searching bot on top of the player. inner 0 = the whole disk.
+    /// </summary>
+    private static Vector2 RingOffset(float inner, float outer)
+    {
+        inner = Mathf.Clamp(inner, 0f, outer);
+        float radius = Mathf.Sqrt(Random.Range(inner * inner, outer * outer));
+        float angle = Random.Range(0f, Mathf.PI * 2f);
+        return new Vector2(Mathf.Cos(angle) * radius, Mathf.Sin(angle) * radius);
+    }
+
     private void RememberVaguePosition(Vector3 position, float uncertainty)
     {
         _vaguePosition = position;
@@ -529,7 +541,7 @@ public class ShotReactionClass : BotComponentClassBase
         float own = ComputeUncertainty(enemy.EnemyPlayer, enemy.RealDistance, false, enemy);
         float uncertainty = Mathf.Max(own, alertUncertainty);
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
-        Vector2 offset = Random.insideUnitCircle * radius;
+        Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 point = (center ?? enemy.EnemyPosition) + new Vector3(offset.x, 0f, offset.y);
         if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, radius * 0.5f), NavMesh.AllAreas))
         {
@@ -1028,7 +1040,7 @@ public class ShotReactionClass : BotComponentClassBase
             float distance = (killer - Bot.Position).magnitude;
             float uncertainty = ComputeUncertainty(lastAggressor, distance, true, null);
             float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
-            Vector2 offset = Random.insideUnitCircle * radius;
+            Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
             RememberVaguePosition(killer + new Vector3(offset.x, 0f, offset.y), uncertainty);
             LogEvent($"killed by {killerName} from {distance:0} m (uncertainty {uncertainty:0} m)");
             if (rogue)
@@ -1266,14 +1278,15 @@ public class ShotReactionClass : BotComponentClassBase
         public Vector3 Position;
         public Vector3 WeaponRoot;
         public float Time;
+        public string From;
     }
 
     private readonly List<PendingReport> _reports = [];
 
     /// <summary>Another Rogue's enemy report is delivered later (see RogueReport_Patch).</summary>
-    public void QueueReport(IPlayer enemy, Vector3 position, Vector3 weaponRoot, float deliverAt)
+    public void QueueReport(IPlayer enemy, Vector3 position, Vector3 weaponRoot, float deliverAt, string from = null)
     {
-        _reports.Add(new PendingReport { Enemy = enemy, Position = position, WeaponRoot = weaponRoot, Time = deliverAt });
+        _reports.Add(new PendingReport { Enemy = enemy, Position = position, WeaponRoot = weaponRoot, Time = deliverAt, From = from });
     }
 
     private void ProcessReports(float now)
@@ -1286,7 +1299,49 @@ public class ShotReactionClass : BotComponentClassBase
                 continue;
             }
             _reports.RemoveAt(i);
-            Bot.BotOwner?.BotsGroup?.SetEnemyPos(report.Enemy, report.Position, report.WeaponRoot, EEnemyPartVisibleType.Sence);
+            DeliverReport(report, now);
+        }
+    }
+
+    /// <summary>
+    /// A report from another Rogue gives this Rogue a point in a ring around the player, not the exact position. The first report gives a wide ring;
+    /// every further report within the memory time narrows it (down to a floor), as the Rogue pieces the position together.
+    /// The point also becomes the rough area (and its outer radius the uncertainty), so mounted guns need it narrow enough before they fire at it.
+    /// </summary>
+    private void DeliverReport(PendingReport report, float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        BotsGroup group = Bot.BotOwner?.BotsGroup;
+        if (group == null)
+        {
+            return;
+        }
+        if (!fork.RogueReportRough || report.Enemy == null)
+        {
+            group.SetEnemyPos(report.Enemy, report.Position, report.WeaponRoot, EEnemyPartVisibleType.Sence);
+            return;
+        }
+        if (now - _lastReportTime > fork.RogueReportMemory)
+        {
+            _reportCount = 0;
+        }
+        _reportCount++;
+        _lastReportTime = now;
+        float shrink = Mathf.Pow(Mathf.Clamp(fork.RogueReportShrink, 0.1f, 1f), _reportCount - 1);
+        float outer = Mathf.Max(fork.RogueReportFloorOuter, fork.RogueReportRingOuter * shrink);
+        float inner = Mathf.Min(outer, Mathf.Max(fork.RogueReportFloorInner, fork.RogueReportRingInner * shrink));
+        Vector2 offset = RingOffset(inner, outer);
+        Vector3 delta = new Vector3(offset.x, 0f, offset.y);
+        Vector3 point = report.Position + delta;
+        if (NavMesh.SamplePosition(point, out NavMeshHit navHit, Mathf.Max(5f, outer * 0.5f), NavMesh.AllAreas))
+        {
+            point = navHit.position;
+        }
+        group.SetEnemyPos(report.Enemy, point, report.WeaponRoot + (point - report.Position), EEnemyPartVisibleType.Sence);
+        RememberVaguePosition(point, outer);
+        if (_reportCount == 1 || _reportCount % 5 == 0)
+        {
+            LogEvent($"report #{_reportCount} from {report.From}: rough point {(point - report.Position).magnitude:0} m from the player (ring {inner:0}-{outer:0} m)");
         }
     }
 
@@ -3527,6 +3582,8 @@ public class ShotReactionClass : BotComponentClassBase
     /// <summary>A Rogue that radioed a hit or bullet this recently has already called it in: its death sends no second alert.</summary>
     private const float ALERT_SENT_WINDOW = 3f;
 
+    private int _reportCount;
+    private float _lastReportTime = -999f;
     private bool _deathHandled;
     private float _lastAlertSent = -999f;
     private bool _callInPending;
