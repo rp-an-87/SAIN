@@ -77,7 +77,8 @@ public class BodyPartToShootPatch : ModulePatch
     private static bool TrySelectorPart(EnemyInfo enemyInfo, BotComponent bot, ref Vector3 result)
     {
         Enemy enemy = bot.EnemyController.GetEnemy(enemyInfo.Person.ProfileId, false);
-        Vector3? point = enemy?.AimTarget.GetPointToShoot(allowRepick: false);
+        // Head only: SAIN's picker decides even in this call (it sets the head-only scatter), so the vanilla aim-for-head roll below cannot give a clean head aim.
+        Vector3? point = enemy?.AimTarget.GetPointToShoot(allowRepick: enemy.AimTarget.HeadOnlyTarget);
         if (point == null)
         {
             return false;

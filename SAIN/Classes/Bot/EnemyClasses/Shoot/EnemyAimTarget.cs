@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using EFT;
 using SAIN.Helpers;
 using SAIN.Models.Enums;
@@ -179,6 +180,36 @@ public class EnemyAimTarget(EnemyData enemyData) : EnemyBase(enemyData, enemyDat
     private bool CanShoot(EAimTargetPart part)
     {
         return Enemy.Vision.EnemyParts.Parts.TryGetValue(part.ToBodyPart(), out var data) && data.CanShoot;
+    }
+
+    private static readonly Dictionary<int, float> _aimLogTimes = [];
+
+    /// <summary>Diagnostic: while this bot shoots at the player, one line (at most every 1.5 s) saying where it aims and why (see the AimAtPlayerLog setting).</summary>
+    public void LogAim(SAIN.Components.BotComponent bot, Vector3 endPoint, Vector3 realPoint, Vector3 scatter)
+    {
+        if (!SAINPlugin.LoadedPreset.GlobalSettings.Fork.AimAtPlayerLog || Enemy.EnemyPlayer?.IsYourPlayer != true || bot.BotOwner.ShootData?.Shooting != true)
+        {
+            return;
+        }
+        int id = bot.BotOwner.Id;
+        if (_aimLogTimes.TryGetValue(id, out float last) && Time.time - last < 1.5f)
+        {
+            return;
+        }
+        _aimLogTimes[id] = Time.time;
+        float feet = Enemy.EnemyPlayer.Position.y;
+        var weapon = bot.Info.WeaponInfo;
+        Logger.LogInfoAlways(
+            $"[AimLog] t={Time.time:0.0} {bot.name} [{bot.Info.Profile.WildSpawnType}] shoots at you: dist {Enemy.RealDistance:0} m, aim height {endPoint.y - feet:0.00} m above your feet "
+                + $"(real target {realPoint.y - feet:0.00}), chosen part {(_chosen.HasValue ? _chosen.Value.ToString() : "none")}, head only {OnlyHeadCanBeShot()}, head declined {_headDeclined}, "
+                + $"scatter {scatter.magnitude:0.00} m, optic {bot.PlayerComponent.Equipment.CurrentWeaponInfo?.HasOptic}, fire mode {weapon.SelectedFireMode}, your pose {Enemy.EnemyPlayer.Pose}"
+        );
+    }
+
+    /// <summary>True while only the head can be shot and the head-only scatter is on: the vanilla "aim for head" roll must not give a clean head aim then.</summary>
+    public bool HeadOnlyTarget
+    {
+        get { return Settings.HeadOnlyScatterRadius > 0f && OnlyHeadCanBeShot(); }
     }
 
     private bool OnlyHeadCanBeShot()

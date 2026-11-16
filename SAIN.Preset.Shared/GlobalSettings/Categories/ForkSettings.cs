@@ -354,6 +354,12 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public bool ShotReactionLog = true;
 
     [DataMember]
+    [Category("Shot Reaction/General")]
+    [Name("Log Bots Aiming At You")]
+    [Description("While a bot shoots at you, write one line per bot (at most every 1.5 s) to the BepInEx log: distance, the aim height above your feet, the part it chose, whether only your head was shootable, the head scatter applied, its optic, fire mode and your pose. For finding out why a shot landed where it did.")]
+    public bool AimAtPlayerLog = true;
+
+    [DataMember]
     [Category("Shot Reaction/Brain filter")]
     [Name("Brain: PMCs")]
     [Description("PMCs (USEC and BEAR) use the fork's shot reaction.")]
