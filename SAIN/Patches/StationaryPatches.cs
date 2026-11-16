@@ -207,6 +207,51 @@ namespace SAIN.Patches.Generic
             return true;
         }
 
+        private sealed class GunRange
+        {
+            public float Progress;
+            public float LastTrigger = -999f;
+            public float LastShot = -999f;
+        }
+
+        private static readonly Dictionary<int, GunRange> _ranging = [];
+
+        /// <summary>
+        /// A launcher gunner ranges in: the first grenade of an engagement gets the distance scatter times GrenadeRangingStart; every grenade fired (trigger pulls are counted,
+        /// suppression bursts included, so it carries over from burst to burst) takes GrenadeRangingPerShot off the way down to 1. It is forgotten after
+        /// GrenadeRangingMemory seconds without a shot. Call it every frame the gun aims or fires: that is how the shots get counted.
+        /// </summary>
+        public static float RangingMultiplier(BotOwner owner)
+        {
+            var fork = SAINPlugin.LoadedPreset.GlobalSettings.Fork;
+            if (owner == null || fork.GrenadeRangingStart <= 1f)
+            {
+                return 1f;
+            }
+            if (!_ranging.TryGetValue(owner.Id, out GunRange range))
+            {
+                range = new GunRange();
+                _ranging[owner.Id] = range;
+            }
+            float now = Time.time;
+            float trigger = owner.ShootData != null ? owner.ShootData.LastTriggerPressd : -999f;
+            if (range.LastTrigger < -900f)
+            {
+                range.LastTrigger = trigger;
+            }
+            if (now - range.LastShot > fork.GrenadeRangingMemory)
+            {
+                range.Progress = 0f;
+            }
+            if (trigger > range.LastTrigger + 0.05f)
+            {
+                range.LastTrigger = trigger;
+                range.LastShot = now;
+                range.Progress = Mathf.Min(1f, range.Progress + fork.GrenadeRangingPerShot);
+            }
+            return Mathf.Lerp(fork.GrenadeRangingStart, 1f, range.Progress);
+        }
+
         public static Vector3 GrenadeScatter(BotOwner owner, Vector3 aimPoint)
         {
             var fork = SAINPlugin.LoadedPreset.GlobalSettings.Fork;
@@ -229,6 +274,8 @@ namespace SAIN.Patches.Generic
             {
                 return Vector3.zero;
             }
+            // Ranging in: far wider for the first grenades of an engagement.
+            radius *= RangingMultiplier(owner);
             int id = owner.Id;
             if (!_scatter.TryGetValue(id, out var entry) || Time.time - entry.time > 0.5f)
             {
@@ -366,6 +413,32 @@ namespace SAIN.Patches.Generic
             Vector3? known = MountedHelpers.KnownPosition(bot, goal.ProfileId);
             __result = known != null ? known.Value + Vector3.up * owner.Settings.FileSettings.Aiming.DANGER_UP_POINT : (Vector3?)null;
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Fork: the scatter of a mounted grenade launcher has to sit on the stationary gun's own aim (AimingFromStationary.GetTarget): for a target it sees, that returns the player's exact
+    /// body position, and the scatter that was added to BotAimingData.UpdateEndTargetPoint never reached it.
+    /// </summary>
+    public class MountedAimScatter_Patch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(AimingFromStationary), nameof(AimingFromStationary.GetTarget));
+        }
+
+        [PatchPostfix]
+        public static void Patch(AimingFromStationary __instance, ref Vector3? __result)
+        {
+            if (__result == null)
+            {
+                return;
+            }
+            Vector3 scatter = MountedHelpers.GrenadeScatter(__instance._owner, __result.Value);
+            if (scatter != Vector3.zero)
+            {
+                __result = __result.Value + scatter;
+            }
         }
     }
 

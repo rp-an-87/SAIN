@@ -2121,6 +2121,27 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(0f, 10f, 1f)]
     public float ShotNearHitDistance = 5f;
 
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Launcher Ranging In: First Shot Multiplier")]
+    [Description("A grenade launcher gunner ranges in: the scatter of its first grenade of an engagement (and the jitter of its first suppression burst) is this many times the normal value, 4 = four times. 1 = no ranging in.")]
+    [MinMax(1f, 10f, 10f)]
+    public float GrenadeRangingStart = 4f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Launcher Ranging In: Per Shot")]
+    [Description("Every grenade the gunner fires (suppression bursts included, so it carries over from burst to burst) takes this share off the way from the first-shot multiplier down to 1 (0.2 = fully ranged in after 5 grenades).")]
+    [MinMax(0.01f, 1f, 100f)]
+    public float GrenadeRangingPerShot = 0.2f;
+
+    [DataMember]
+    [Category("Shot Reaction/Mounted guns")]
+    [Name("Launcher Ranging In: Memory (s)")]
+    [Description("Seconds without a grenade after which the gunner has forgotten its range and starts again with the wide first-shot scatter.")]
+    [MinMax(5f, 600f, 1f)]
+    public float GrenadeRangingMemory = 90f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

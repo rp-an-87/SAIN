@@ -5,6 +5,7 @@ using EFT.InventoryLogic;
 using SAIN.Components;
 using SAIN.Models.Enums;
 using SAIN.Models.Structs;
+using SAIN.Patches.Generic;
 using SAIN.Preset.Shared.Enums;
 using SAIN.Preset.Shared.GlobalSettings.Categories;
 using SAIN.Preset.Shared.Models.Preset.Personalities;
@@ -1420,15 +1421,19 @@ public class ShotReactionClass : BotComponentClassBase
     {
         public Vector3 Area;
         public float Radius;
+        public BotOwner Owner;
+        public bool Grenade;
         private float _next;
         private Vector2 _offset;
 
         public Vector3 Get()
         {
+            // A launcher ranges in across its bursts: the jitter around the rough area is wide for its first grenades and narrows with every one (also counts the shots).
+            float ranging = Grenade ? MountedHelpers.RangingMultiplier(Owner) : 1f;
             if (Time.time >= _next)
             {
                 _next = Time.time + 1f;
-                _offset = Random.insideUnitCircle * Radius;
+                _offset = Random.insideUnitCircle * Radius * ranging;
             }
             return Area + new Vector3(_offset.x, 0f, _offset.y);
         }
@@ -1517,7 +1522,7 @@ public class ShotReactionClass : BotComponentClassBase
         float pause = grenade
             ? Random.Range(fork.MountedGrenadePauseMin, Mathf.Max(fork.MountedGrenadePauseMin, fork.MountedGrenadePauseMax))
             : Random.Range(fork.MountedAreaCooldownMin, Mathf.Max(fork.MountedAreaCooldownMin, fork.MountedAreaCooldownMax));
-        var target = new AreaTarget { Area = _vaguePosition, Radius = fork.MountedAreaSuppressError };
+        var target = new AreaTarget { Area = _vaguePosition, Radius = fork.MountedAreaSuppressError, Owner = Bot.BotOwner, Grenade = grenade };
         if (!logic.CanStartSuppressAt(target.Area))
         {
             // Out of the gun's arc (or a spot it already wasted a burst on): not this time.
