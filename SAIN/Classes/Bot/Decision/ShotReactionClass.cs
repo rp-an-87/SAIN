@@ -349,6 +349,7 @@ public class ShotReactionClass : BotComponentClassBase
             return _vaguePosition;
         }
         _lastDegradeTime = now;
+        _localPressureTime = now;
 
         float uncertainty = Shrunk(ComputeUncertainty(enemy.EnemyPlayer, distance, hit, enemy), FloorAt(fork.AreaFloorOuter, distance, enemy), NoteInformation(now));
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
@@ -843,10 +844,11 @@ public class ShotReactionClass : BotComponentClassBase
         }
         _bulletStack++;
         _bulletStackTime = now;
+        _localPressureTime = now;
     }
 
-    /// <summary>A close bullet at a Rogue or Goon adds to the pressure of the Rogues and Goons within AreaShareRadius of it too (the same distance that shares the narrowing).</summary>
-    private void ShareBulletPressure(float now)
+    /// <summary>A hit or close bullet at a Rogue or Goon adds to the pressure of the Rogues and Goons within AreaShareRadius of it too (the same distance that shares the narrowing).</summary>
+    private void ShareBulletPressure(float now, bool hit)
     {
         float radius = GlobalSettings.Fork.AreaShareRadius;
         if (radius <= 0f || !IsRogueOrGoon(Bot.BotOwner))
@@ -867,7 +869,14 @@ public class ShotReactionClass : BotComponentClassBase
             }
             if ((other.Position - Bot.Position).sqrMagnitude <= radiusSqr)
             {
-                other.ShotReaction.NoteBulletPressure(now);
+                if (hit)
+                {
+                    other.ShotReaction._localPressureTime = now;
+                }
+                else
+                {
+                    other.ShotReaction.NoteBulletPressure(now);
+                }
             }
         }
     }
@@ -878,8 +887,12 @@ public class ShotReactionClass : BotComponentClassBase
         if (!hit)
         {
             NoteBulletPressure(now);
-            ShareBulletPressure(now);
         }
+        else
+        {
+            _localPressureTime = now;
+        }
+        ShareBulletPressure(now, hit);
         AlertRogues(enemy.EnemyPlayer, hit, now);
         if (TryStationaryGate(enemy, hit, now))
         {
@@ -3718,6 +3731,7 @@ public class ShotReactionClass : BotComponentClassBase
     // ---- Duel retreat: a long fight the bot cannot win ----
 
     private readonly Queue<float> _duelHits = new();
+    private float _localPressureTime = -999f;
     private float _pressure;
     private float _pressureTarget = 75f;
     private float _pressureLastCheck;
@@ -3735,8 +3749,8 @@ public class ShotReactionClass : BotComponentClassBase
     private bool _forcedRetreat;
 
     /// <summary>
-    /// Rogues and Goons: the player keeps giving their squad information (shots they hear, hits, close bullets, alerts, reports) for a random RoguePressureTimeMin to RoguePressureTimeMax
-    /// seconds (a gap over RoguePressureGap resets the clock) without the bot ever seeing the player: it cannot pinpoint him and gives the position up, a full retreat down
+    /// Rogues and Goons: the player keeps shooting near them (shots they hear, hits and close bullets at them or at Rogues and Goons within the shared radius) for a random
+    /// RoguePressureTimeMin to RoguePressureTimeMax seconds (a gap over RoguePressureGap resets the clock) without the bot seeing the player: it cannot pinpoint him and gives the position up, a full retreat down
     /// off the roof (RogueRetreatDown). A window for the sniper, then the Rogues are gone. A gunner leaves its gun. Once per RoguePressureCooldown.
     /// </summary>
     private void TryPressureRetreat(float now)
@@ -3749,8 +3763,9 @@ public class ShotReactionClass : BotComponentClassBase
         float dt = Mathf.Min(now - _pressureLastCheck, 2f);
         _pressureLastCheck = now;
         _nextPressureCheck = now + 1f;
-        KnowState state = GetKnowState();
-        bool pressure = state.Count > 0 && now - state.LastInfo <= fork.RoguePressureGap;
+        // Local pressure only: shots this bot hears, hits and close bullets at it or at Rogues and Goons within the shared radius. Global alerts and far reports do not count,
+        // so the retreat reaches the Rogues near the shooting, not all of them.
+        bool pressure = now - _localPressureTime <= fork.RoguePressureGap;
         Enemy goal = Bot.GoalEnemy;
         bool sees = goal != null && goal.IsVisible && goal.CanShoot;
         if (!pressure)
