@@ -160,6 +160,48 @@ public class SAINCoverClass : BotComponentClassBase
         return false;
     }
 
+    /// <summary>
+    /// Fork: during a shot reaction a cover point that already has ShotCoverMaxPerPoint other reacting bots at it or on their way to it (within ShotCoverCrowdRadius) is not offered,
+    /// so a group does not pile into one spot. False = candidates existed and all were taken (the shot reaction's no-cover decision applies: fight or flight).
+    /// </summary>
+    private bool filterCrowded()
+    {
+        var fork = GlobalSettingsClass.Instance.Fork;
+        if (fork.ShotCoverMaxPerPoint <= 0 || _shotLogUntil < Time.time || _coverPoints.Count == 0)
+        {
+            return true;
+        }
+        BotManagerComponent manager = BotManagerComponent.Instance;
+        if (manager?.Bots == null)
+        {
+            return true;
+        }
+        float radiusSqr = fork.ShotCoverCrowdRadius * fork.ShotCoverCrowdRadius;
+        for (int i = _coverPoints.Count - 1; i >= 0; i--)
+        {
+            Vector3 position = _coverPoints[i].Position;
+            int others = 0;
+            foreach (BotComponent other in manager.Bots.Values)
+            {
+                if (other == null || other == Bot || other.BotOwner == null || other.BotOwner.IsDead || other.ShotReaction == null || !other.ShotReaction.InReaction)
+                {
+                    continue;
+                }
+                CoverPoint taken = other.Cover.CoverInUse ?? other.Cover.CoverPoint_MovingTo;
+                if (taken != null && (taken.Position - position).sqrMagnitude <= radiusSqr)
+                {
+                    others++;
+                    if (others >= fork.ShotCoverMaxPerPoint)
+                    {
+                        _coverPoints.RemoveAt(i);
+                        break;
+                    }
+                }
+            }
+        }
+        return _coverPoints.Count > 0;
+    }
+
     private CoverPoint FindCoverPoint()
     {
         if (CoverPoints.Count == 0)
@@ -177,6 +219,11 @@ public class SAINCoverClass : BotComponentClassBase
         filterForReloadRelocation();
         filterAwayFromShot();
         filterTowardArea();
+        if (!filterCrowded())
+        {
+            LogNoCover("cover search: every candidate is already taken by other reacting bots (no cover for this bot)");
+            return null;
+        }
 
         // Fork: right after a shot, with only bushes to choose from, the bot does not hide in one: it counts as "no cover" and the shot reaction
         // decides fight or flight (a full retreat run, or a fight when the shooter is close).
@@ -312,6 +359,11 @@ public class SAINCoverClass : BotComponentClassBase
         if (_shotLogUntil >= Time.time && IsThin(point))
         {
             cost += GlobalSettingsClass.Instance.Fork.ShotCoverThinPenalty;
+        }
+        // Fork: low cover leaves the head exposed (a bot standing behind it is a duck): it counts as farther away during a shot reaction.
+        if (_shotLogUntil >= Time.time && point.CoverHeight < GlobalSettingsClass.Instance.Fork.ShotCoverLowHeight)
+        {
+            cost += GlobalSettingsClass.Instance.Fork.ShotCoverLowPenalty;
         }
         if (IsFoliage(point))
         {

@@ -1938,6 +1938,48 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("Every 10 seconds one log line with how much time the shot reaction code took (average ms per second, worst call, worst frame, per part) and how many vanilla report calls came in and were taken.")]
     public bool ShotPerfLog = true;
 
+    [DataMember]
+    [Category("Shot Reaction/Cover")]
+    [Name("Cover: Low Height")]
+    [Description("During a shot reaction a cover lower than this (meters) leaves the head exposed: it counts as Low Penalty meters farther away. 0 = off.")]
+    [MinMax(0f, 2f, 100f)]
+    public float ShotCoverLowHeight = 1f;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover")]
+    [Name("Cover: Low Penalty")]
+    [Description("Meters added to the path length of a low cover (see Low Height) when a bot in a shot reaction picks its cover.")]
+    [MinMax(0f, 100f, 1f)]
+    public float ShotCoverLowPenalty = 15f;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover")]
+    [Name("Cover: Max Bots Per Point")]
+    [Description("A cover point that already has this many other bots in a shot reaction at it (or on their way to it, within Crowd Radius) is not offered to another one: no more piling into one spot. When every candidate is taken the bot's no-cover decision applies (fight or flee). 0 = no limit.")]
+    [MinMax(0f, 10f, 1f)]
+    public float ShotCoverMaxPerPoint = 2f;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover")]
+    [Name("Cover: Crowd Radius")]
+    [Description("Radius (meters) around a cover point inside which other bots' cover counts as the same spot.")]
+    [MinMax(1f, 30f, 1f)]
+    public float ShotCoverCrowdRadius = 6f;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover")]
+    [Name("Cover Search Interval In Cover")]
+    [Description("Seconds between two cover searches for a bot in a shot reaction that already holds a cover (the normal interval is 0.1 s).")]
+    [MinMax(0.1f, 5f, 10f)]
+    public float ShotCoverHoldFindInterval = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover")]
+    [Name("Cover Search Backoff Max")]
+    [Description("A bot in a shot reaction whose search found no cover waits longer each time (0.2, 0.4, 0.8 ... s) up to this many seconds, instead of searching every 0.1 s.")]
+    [MinMax(0.1f, 10f, 10f)]
+    public float ShotCoverEmptyBackoffMax = 2f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

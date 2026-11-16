@@ -199,6 +199,12 @@ public class ShotReactionClass : BotComponentClassBase
         get { return Outcome != EShotReaction.None && Outcome != EShotReaction.Fight && !Relocating && !_followDone && !_noCoverDone; }
     }
 
+    /// <summary>The bot is in a shot reaction (hiding, holding, investigating, retreating or fighting).</summary>
+    public bool InReaction
+    {
+        get { return Outcome != EShotReaction.None || Relocating; }
+    }
+
     public bool IsManaging(Enemy enemy)
     {
         return Outcome != EShotReaction.None && enemy != null && enemy == _enemy;

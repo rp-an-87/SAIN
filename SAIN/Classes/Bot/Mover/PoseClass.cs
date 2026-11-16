@@ -66,16 +66,34 @@ public class PoseClass : BotBase
 
     public bool SetPoseToCover(Enemy enemy)
     {
-        if (enemy == null)
+        if (!Bot.Info.FileSettings.Move.AUTOCROUCH_TOGGLE || !GlobalSettingsClass.Instance.Move.AUTOCROUCH_TOGGLE)
         {
             return false;
         }
-        if (!Bot.Info.FileSettings.Move.AUTOCROUCH_TOGGLE || !GlobalSettingsClass.Instance.Move.AUTOCROUCH_TOGGLE)
+        // Fork: in a shot reaction against a shooter the bot cannot see there is no enemy to look at (or no look point on it), so the bot used to stay standing
+        // behind its cover with its head exposed. It crouches against the rough shot area instead.
+        Vector3? area = Bot.ShotReaction.ThreatArea;
+        if (area != null && (enemy == null || !enemy.IsVisible))
+        {
+            FindObjectsInArea(area.Value);
+            return SetTargetPose(ObjectTargetPoseCover);
+        }
+        if (enemy == null)
         {
             return false;
         }
         FindObjectsInFront(enemy);
         return SetTargetPose(ObjectTargetPoseCover);
+    }
+
+    private void FindObjectsInArea(Vector3 area)
+    {
+        if (UpdateFindObjectTimer < Time.time)
+        {
+            UpdateFindObjectTimer = Time.time + 0.33f;
+            float pose = FindCrouchHeightRaycast(area + (Vector3.up * 1.2f));
+            ObjectTargetPoseCover = pose < 1f ? pose : (float?)null;
+        }
     }
 
     public bool SetTargetPose(float num)

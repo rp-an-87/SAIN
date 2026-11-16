@@ -13,8 +13,9 @@ internal static class ShotPerf
     public const int Apply = 1;
     public const int FanOut = 2;
     public const int Deliver = 3;
-    private const int COUNT = 4;
-    private static readonly string[] _names = ["update", "apply+cover", "alert fan-out", "report delivery"];
+    public const int Finder = 4;
+    private const int COUNT = 5;
+    private static readonly string[] _names = ["update", "apply+cover", "alert fan-out", "report delivery", "cover finder"];
     private static readonly long[] _total = new long[COUNT];
     private static readonly long[] _max = new long[COUNT];
     private static readonly long[] _frameSum = new long[COUNT];

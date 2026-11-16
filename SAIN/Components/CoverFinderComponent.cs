@@ -6,6 +6,7 @@ using SAIN.Models.Enums;
 using SAIN.Plugin;
 using SAIN.Preset;
 using SAIN.Preset.Shared.GlobalSettings;
+using SAIN.SAINComponent.Classes.Decision;
 using SAIN.SAINComponent.Classes.EnemyClasses;
 using SAIN.SAINComponent.SubComponents.CoverFinder;
 using UnityEngine;
@@ -110,7 +111,6 @@ public class CoverFinderComponent : BotComponentBase
 
     private IEnumerator FindCoverLoop()
     {
-        WaitForSeconds wait = new(FIND_COVER_INTERVAL);
         while (Bot != null)
         {
             Enemy enemy = Bot.EnemyController.GoalEnemy;
@@ -163,6 +163,7 @@ public class CoverFinderComponent : BotComponentBase
                         continue;
                     }
                     _totalChecked++;
+                    long perfStart = ShotPerf.Start();
                     enemy = Bot.EnemyController.GoalEnemy;
                     Vector3? threat = enemy?.LastKnownPosition ?? Bot.ShotReaction.ThreatArea;
                     if (threat == null)
@@ -217,6 +218,7 @@ public class CoverFinderComponent : BotComponentBase
                         break;
                     }
 
+                    ShotPerf.Stop(ShotPerf.Finder, perfStart);
                     yield return null;
                 }
                 sort(CoverPoints.Count, CoverPoints);
@@ -225,8 +227,35 @@ public class CoverFinderComponent : BotComponentBase
 #endif
             }
             CurrentStatus = ECoverFinderStatus.None;
-            yield return wait;
+            float until = Time.time + FindInterval();
+            while (Time.time < until)
+            {
+                yield return null;
+            }
         }
+    }
+
+    private int _emptyStreak;
+
+    /// <summary>
+    /// Fork: how long to wait before the next search. In a shot reaction a bot that holds its cover searches less often, and a bot that found no cover backs off
+    /// (a few bots looping on "no cover points" every 0.1 s was the most expensive part). Otherwise the normal interval.
+    /// </summary>
+    private float FindInterval()
+    {
+        if (!Bot.ShotReaction.InReaction)
+        {
+            _emptyStreak = 0;
+            return FIND_COVER_INTERVAL;
+        }
+        var fork = SAINPlugin.LoadedPreset.GlobalSettings.Fork;
+        if (CoverPoints.Count == 0)
+        {
+            _emptyStreak++;
+            return Mathf.Min(Mathf.Max(fork.ShotCoverEmptyBackoffMax, FIND_COVER_INTERVAL), FIND_COVER_INTERVAL * Mathf.Pow(2f, Mathf.Min(_emptyStreak, 6)));
+        }
+        _emptyStreak = 0;
+        return Bot.Cover.CoverInUse != null ? Mathf.Max(FIND_COVER_INTERVAL, fork.ShotCoverHoldFindInterval) : FIND_COVER_INTERVAL;
     }
 
     private void sort(int coverCount, List<CoverPoint> points)
