@@ -1989,7 +1989,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction/Duel")]
     [Name("Duel Retreat Enabled")]
-    [Description("A bot that has been seeing the player for a long time, has been hit several times meanwhile and has the player beyond its effective weapon reach (it cannot hit back) gives the position up: a full retreat out of the player's sight, then the normal hold and investigation. Off = it keeps fighting.")]
+    [Description("A bot that has been seeing the player for a long time, has had hits or close bullets of the player meanwhile and has not hit the player itself in that time gives the position up (not at close range): a full retreat out of the player's sight, then the normal hold and investigation. Off = it keeps fighting.")]
     public bool ShotDuelRetreatEnabled = true;
 
     [DataMember]
@@ -2001,15 +2001,15 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction/Duel")]
-    [Name("Duel: Hits Needed")]
-    [Description("Hits by the player on this bot within the window below.")]
+    [Name("Duel: Shots On It Needed")]
+    [Description("Hits by the player on this bot, or bullets of the player passing close to it, within the window below. The bot must not have hit the player itself in the same time.")]
     [MinMax(1f, 10f, 1f)]
-    public float ShotDuelHits = 3f;
+    public float ShotDuelShots = 2f;
 
     [DataMember]
     [Category("Shot Reaction/Duel")]
     [Name("Duel: Hit Window (s)")]
-    [Description("The hits have to fall within this many seconds.")]
+    [Description("The hits and close bullets have to fall within this many seconds, and the bot must not have hit the player in that time.")]
     [MinMax(10f, 600f, 1f)]
     public float ShotDuelWindow = 60f;
 

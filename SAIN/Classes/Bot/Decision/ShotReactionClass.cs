@@ -158,6 +158,25 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     private bool _deathHooked;
+    private bool _enemyHitHooked;
+
+    private void HookEnemyHit()
+    {
+        if (!_enemyHitHooked && Bot.EnemyController?.Events != null)
+        {
+            Bot.EnemyController.Events.OnEnemyHit += OnBotHitEnemy;
+            _enemyHitHooked = true;
+        }
+    }
+
+    /// <summary>This bot hit one of its enemies: for the player, a duel retreat needs the bot to have failed to hit it.</summary>
+    private void OnBotHitEnemy(Enemy enemy)
+    {
+        if (enemy?.EnemyPlayer?.IsYourPlayer == true)
+        {
+            _duelLastHitPlayer = Time.time;
+        }
+    }
 
     private void HookDeath()
     {
@@ -180,6 +199,11 @@ public class ShotReactionClass : BotComponentClassBase
         {
             Bot.Player.OnPlayerDead -= OnOwnDeath;
             _deathHooked = false;
+        }
+        if (_enemyHitHooked && Bot.EnemyController?.Events != null)
+        {
+            Bot.EnemyController.Events.OnEnemyHit -= OnBotHitEnemy;
+            _enemyHitHooked = false;
         }
         base.Dispose();
     }
@@ -634,6 +658,11 @@ public class ShotReactionClass : BotComponentClassBase
         if (_deathHandled || Bot.BotOwner == null || Bot.BotOwner.IsDead)
         {
             return;
+        }
+        if (!hit)
+        {
+            // A close bullet counts toward a duel retreat even when the bot sees the shooter (a hit is counted in OnHit).
+            NoteDuelHit(enemy);
         }
         if (!AppliesTo(enemy))
         {
@@ -3498,9 +3527,10 @@ public class ShotReactionClass : BotComponentClassBase
     private float _duelLastCheck;
     private float _nextDuelCheck;
     private float _duelCooldownUntil;
+    private float _duelLastHitPlayer = -999f;
     private bool _forcedRetreat;
 
-    /// <summary>The player hit this bot (seen or not): counts toward a duel retreat.</summary>
+    /// <summary>The player hit this bot, or a bullet of the player passed close to it (seen or not): counts toward a duel retreat.</summary>
     private void NoteDuelHit(Enemy enemy)
     {
         ForkSettings fork = GlobalSettings.Fork;
@@ -3512,9 +3542,9 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>
-    /// A bot that has been seeing the player for a long time (ShotDuelSeenTime seconds in total, gaps under 15 s), has been hit ShotDuelHits times in the last ShotDuelWindow seconds
-    /// and has the player beyond its effective reach (it cannot hit back) gives the position up: a full retreat out of sight, then the normal hold and investigation.
-    /// Once per ShotDuelCooldown. Gunners on a mounted gun are not affected (they leave it when it cannot answer).
+    /// A bot that has been seeing the player for a long time (ShotDuelSeenTime seconds in total, gaps under 15 s), has had ShotDuelShots hits or close bullets of the player in the last
+    /// ShotDuelWindow seconds and has not hit the player itself in that time gives the position up: a full retreat out of sight, then the normal hold and investigation.
+    /// Not at close range, once per ShotDuelCooldown. Gunners on a mounted gun are not affected (they leave it when it cannot answer).
     /// </summary>
     private void TryDuelRetreat(float now)
     {
@@ -3548,13 +3578,12 @@ public class ShotReactionClass : BotComponentClassBase
         {
             _duelSeen = 0f;
         }
-        if (Relocating || now < _duelCooldownUntil || _duelSeen < fork.ShotDuelSeenTime || _duelHits.Count < Mathf.RoundToInt(fork.ShotDuelHits))
+        if (Relocating || now < _duelCooldownUntil || _duelSeen < fork.ShotDuelSeenTime || _duelHits.Count < Mathf.RoundToInt(fork.ShotDuelShots) || now - _duelLastHitPlayer < fork.ShotDuelWindow)
         {
             return;
         }
-        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
         float distance = enemy.RealDistance;
-        if (distance <= reach * FIGHT_REACH_LIMIT || OnStationary())
+        if (IsCloseRange(distance) || OnStationary())
         {
             return;
         }
@@ -3567,7 +3596,7 @@ public class ShotReactionClass : BotComponentClassBase
             _duelCooldownUntil = now + fork.ShotDuelCooldown;
             _duelSeen = 0f;
             _duelHits.Clear();
-            LogEvent($"duel retreat: sees the player for {seen:0} s, hit {hits} times in {fork.ShotDuelWindow:0} s, player at {distance:0} m (reach {reach:0} m)");
+            LogEvent($"duel retreat: sees the player for {seen:0} s, {hits} hits or close bullets and no hit on the player in {fork.ShotDuelWindow:0} s, player at {distance:0} m");
             return;
         }
         _forcedRetreat = false;
@@ -3586,6 +3615,7 @@ public class ShotReactionClass : BotComponentClassBase
     {
         float now = Time.time;
         HookDeath();
+        HookEnemyHit();
         ProcessCallIn(now);
         ProcessDeferredRadio(now);
         ProcessPendingRogueAlert(now);
