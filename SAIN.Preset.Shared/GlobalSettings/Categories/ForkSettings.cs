@@ -2020,6 +2020,40 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(0f, 1200f, 1f)]
     public float ShotDuelCooldown = 120f;
 
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Area Narrowing Shared By Squad")]
+    [Description("On = the count that narrows a bot's rough areas belongs to its squad: a piece of information about the player (a shot at one member, an alert, a report) narrows the ring for every member at once. Off = each bot counts for itself.")]
+    public bool AreaShareSquad = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Area Narrowing Shared Radius")]
+    [Description("When the ring of a Rogue or Goon narrows, the Rogues and Goons within this many meters of it (other squads too) get the same count at once. 0 = off.")]
+    [MinMax(0f, 300f, 1f)]
+    public float AreaShareRadius = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction/Self preservation")]
+    [Name("Close Bullet Stack Step")]
+    [Description("Every close bullet within the stack window adds this much to the chance (0.2 = 20% for the first bullet, 22% for the second with 0.02) that a bot in cover moves to another cover, up to the ceiling. A move resets it.")]
+    [MinMax(0f, 0.2f, 100f)]
+    public float ShotSelfPreserveBulletStep = 0.02f;
+
+    [DataMember]
+    [Category("Shot Reaction/Self preservation")]
+    [Name("Close Bullet Stack Ceiling")]
+    [Description("The most the stacked close-bullet chance can reach, so suppression alone does not keep a bot moving.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotSelfPreserveBulletCeiling = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Self preservation")]
+    [Name("Close Bullet Stack Reset (s)")]
+    [Description("Seconds without a close bullet after which the stack starts again from the first bullet.")]
+    [MinMax(1f, 120f, 1f)]
+    public float ShotBulletStackReset = 20f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

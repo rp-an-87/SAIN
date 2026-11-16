@@ -484,6 +484,63 @@ public class ShotReactionClass : BotComponentClassBase
     /// One piece of information about the player's position reached this bot (a shot, hit, alert or report). Counts at most once per cooldown (a burst is one piece)
     /// and the count is forgotten after the memory time without any. Returns the shrink factor for areas made now (1 for the first piece).
     /// </summary>
+    private sealed class KnowState
+    {
+        public int Count;
+        public float LastCount = -999f;
+        public float LastInfo = -999f;
+    }
+
+    private static readonly Dictionary<BotsGroup, KnowState> _groupKnow = [];
+    private readonly KnowState _ownKnow = new();
+
+    /// <summary>The count of information pieces this bot narrows its areas by: its squad's (everyone in a squad has the same ring) or its own when it has no group or sharing is off.</summary>
+    private KnowState GetKnowState()
+    {
+        if (GlobalSettings.Fork.AreaShareSquad)
+        {
+            BotsGroup group = Bot.BotOwner?.BotsGroup;
+            if (group != null)
+            {
+                if (!_groupKnow.TryGetValue(group, out KnowState state))
+                {
+                    if (_groupKnow.Count > 64)
+                    {
+                        List<BotsGroup> stale = null;
+                        foreach (var pair in _groupKnow)
+                        {
+                            if (Time.time - pair.Value.LastInfo > 300f)
+                            {
+                                (stale ??= []).Add(pair.Key);
+                            }
+                        }
+                        if (stale != null)
+                        {
+                            foreach (BotsGroup key in stale)
+                            {
+                                _groupKnow.Remove(key);
+                            }
+                        }
+                    }
+                    state = new KnowState();
+                    _groupKnow[group] = state;
+                }
+                return state;
+            }
+        }
+        return _ownKnow;
+    }
+
+    private int KnowCount
+    {
+        get { return GetKnowState().Count; }
+    }
+
+    /// <summary>
+    /// One piece of information about the player's position reached this bot (a shot, hit, alert or report). Counts at most once per cooldown (a burst is one piece)
+    /// and the count is forgotten after the memory time without any. The count belongs to the bot's squad (every member narrows at once); a Rogue or Goon also hands it to
+    /// the Rogues and Goons close to it. Returns the shrink factor for areas made now (1 for the first piece).
+    /// </summary>
     private float NoteInformation(float now)
     {
         ForkSettings fork = GlobalSettings.Fork;
@@ -492,21 +549,57 @@ public class ShotReactionClass : BotComponentClassBase
         {
             return 1f;
         }
-        if (now - _knowLastInfo > fork.AreaMemory)
+        KnowState state = GetKnowState();
+        if (now - state.LastInfo > fork.AreaMemory)
         {
-            _knowCount = 0;
+            state.Count = 0;
         }
-        _knowLastInfo = now;
-        if (_knowCount == 0 || now - _knowLastCount >= fork.AreaShrinkCooldown)
+        state.LastInfo = now;
+        if (state.Count == 0 || now - state.LastCount >= fork.AreaShrinkCooldown)
         {
-            _knowCount++;
-            _knowLastCount = now;
-            if (_knowCount >= 2 && (_knowCount <= 3 || _knowCount % 5 == 0))
+            state.Count++;
+            state.LastCount = now;
+            ShareWithNeighbors(state, now);
+            if (state.Count >= 2 && (state.Count <= 3 || state.Count % 5 == 0))
             {
-                LogEvent($"more information about the player's position: piece #{_knowCount}, areas now x{Mathf.Pow(shrink, _knowCount - 1):0.00} (floor {fork.AreaFloorOuter:0} m)");
+                LogEvent($"more information about the player's position: piece #{state.Count}, areas now x{Mathf.Pow(shrink, state.Count - 1):0.00} (floor {fork.AreaFloorOuter:0} m)");
             }
         }
-        return Mathf.Pow(shrink, _knowCount - 1);
+        return Mathf.Pow(shrink, state.Count - 1);
+    }
+
+    /// <summary>A Rogue or Goon that narrowed hands the new count to the Rogues and Goons within AreaShareRadius of it (they get the same ring at once).</summary>
+    private void ShareWithNeighbors(KnowState state, float now)
+    {
+        float radius = GlobalSettings.Fork.AreaShareRadius;
+        if (radius <= 0f || state.Count < 2 || !IsRogueOrGoon(Bot.BotOwner))
+        {
+            return;
+        }
+        BotManagerComponent manager = BotManagerComponent.Instance;
+        if (manager?.Bots == null)
+        {
+            return;
+        }
+        float radiusSqr = radius * radius;
+        foreach (BotComponent other in manager.Bots.Values)
+        {
+            if (other == null || other == Bot || other.BotOwner == null || other.BotOwner.IsDead || other.ShotReaction == null || !IsRogueOrGoon(other.BotOwner))
+            {
+                continue;
+            }
+            if ((other.Position - Bot.Position).sqrMagnitude > radiusSqr)
+            {
+                continue;
+            }
+            KnowState neighbor = other.ShotReaction.GetKnowState();
+            if (neighbor != state && neighbor.Count < state.Count)
+            {
+                neighbor.Count = state.Count;
+                neighbor.LastCount = now;
+                neighbor.LastInfo = now;
+            }
+        }
     }
 
     /// <summary>
@@ -730,9 +823,24 @@ public class ShotReactionClass : BotComponentClassBase
         ProcessShot(enemy, _callInDistance, _callInHit);
     }
 
+    /// <summary>A close bullet adds to the pressure on this bot (see TrySelfPreservation); the pressure is forgotten after a quiet spell.</summary>
+    private void NoteBulletPressure(float now)
+    {
+        if (now - _bulletStackTime > GlobalSettings.Fork.ShotBulletStackReset)
+        {
+            _bulletStack = 0;
+        }
+        _bulletStack++;
+        _bulletStackTime = now;
+    }
+
     private void ProcessShot(Enemy enemy, float distance, bool hit)
     {
         float now = Time.time;
+        if (!hit)
+        {
+            NoteBulletPressure(now);
+        }
         AlertRogues(enemy.EnemyPlayer, hit, now);
         if (TryStationaryGate(enemy, hit, now))
         {
@@ -1665,7 +1773,7 @@ public class ShotReactionClass : BotComponentClassBase
             _groupPoints[group] = new GroupPoint { Point = point, Uncertainty = uncertainty, Time = now, Enemy = report.Enemy };
             if (fork.ShotReactionLog)
             {
-                LogEvent($"report from {report.From}: new rough point {(point - report.Position).magnitude:0} m from the player (uncertainty {uncertainty:0} m at {distance:0} m, piece #{_knowCount})");
+                LogEvent($"report from {report.From}: new rough point {(point - report.Position).magnitude:0} m from the player (uncertainty {uncertainty:0} m at {distance:0} m, piece #{KnowCount})");
             }
         }
         group.SetEnemyPos(report.Enemy, point, report.WeaponRoot + (point - report.Position), report.Type);
@@ -2126,7 +2234,10 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         // A bush stops nothing: shot at in foliage the bot reacts to a bullet as strongly as to a hit.
-        float chance = hit || Bot.Cover.InFoliageCover ? SELF_PRESERVE_HIT_CHANCE : SELF_PRESERVE_BULLET_CHANCE;
+        // Close bullets stack: each one in the window adds a step to the bullet chance, up to a ceiling (suppression alone must not keep a bot moving).
+        ForkSettings pressure = GlobalSettings.Fork;
+        float bulletChance = Mathf.Min(Mathf.Max(SELF_PRESERVE_BULLET_CHANCE, pressure.ShotSelfPreserveBulletCeiling), SELF_PRESERVE_BULLET_CHANCE + (pressure.ShotSelfPreserveBulletStep * Mathf.Max(0, _bulletStack - 1)));
+        float chance = hit || Bot.Cover.InFoliageCover ? SELF_PRESERVE_HIT_CHANCE : bulletChance;
         switch (Bot.Info.Personality)
         {
             case EPersonality.Wreckless:
@@ -2149,7 +2260,8 @@ public class ShotReactionClass : BotComponentClassBase
         bool inFoliage = Bot.Cover.InFoliageCover;
         if (Bot.Cover.RelocateFromFire(_vaguePosition))
         {
-            LogEvent($"self preservation: shot at in {(inFoliage ? "foliage" : "cover")}, moving to another cover (chance {chance:0.00})");
+            LogEvent($"self preservation: shot at in {(inFoliage ? "foliage" : "cover")}, moving to another cover (chance {chance:0.00}, {_bulletStack} close bullets)");
+            _bulletStack = 0;
         }
     }
 
@@ -4060,9 +4172,8 @@ public class ShotReactionClass : BotComponentClassBase
 
     private int _reportLoggedCount;
     private float _nextReportAccept;
-    private int _knowCount;
-    private float _knowLastCount = -999f;
-    private float _knowLastInfo = -999f;
+    private int _bulletStack;
+    private float _bulletStackTime = -999f;
     private bool _deathHandled;
     private float _lastAlertSent = -999f;
     private bool _callInPending;
