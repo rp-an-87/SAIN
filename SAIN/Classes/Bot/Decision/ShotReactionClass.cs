@@ -1507,6 +1507,21 @@ public class ShotReactionClass : BotComponentClassBase
         return role == WildSpawnType.exUsec || role == WildSpawnType.bossKnight || role == WildSpawnType.followerBigPipe || role == WildSpawnType.followerBirdEye;
     }
 
+    /// <summary>
+    /// Ordinary squads (PMCs, raiders, scavs, cultists): their sightings are shared as rough points inside the squad too (ShotSightingRingsSquads).
+    /// Not bosses or followers: vanilla boss logic and other mods listen to their reports.
+    /// </summary>
+    public static bool IsOrdinarySquadBot(BotOwner owner)
+    {
+        WildSpawnType? role = owner?.Profile?.Info?.Settings?.Role;
+        if (role == null)
+        {
+            return false;
+        }
+        EForkBrainGroup group = ForkBrainFilter.GetGroup(role.Value);
+        return group == EForkBrainGroup.Pmc || group == EForkBrainGroup.Raider || group == EForkBrainGroup.Scav || group == EForkBrainGroup.Cultist;
+    }
+
     private static readonly List<BotsGroup> _groupScratch = [];
 
     /// <summary>
@@ -1514,7 +1529,7 @@ public class ShotReactionClass : BotComponentClassBase
     /// (see BotsGroup.ReportAboutEnemy). Instead, one report per Rogue/Goon group is queued here, each after its own delay (random + per metre from the reporter),
     /// and delivered as one rough point per group (see DeliverToGroup). Called at most once per interval per group.
     /// </summary>
-    public void QueueGroupReports(IPlayer enemy, EEnemyPartVisibleType type)
+    public void QueueGroupReports(IPlayer enemy, EEnemyPartVisibleType type, bool crossGroup = true)
     {
         ForkSettings fork = GlobalSettings.Fork;
         BotManagerComponent manager = BotManagerComponent.Instance;
@@ -1525,16 +1540,28 @@ public class ShotReactionClass : BotComponentClassBase
         Vector3 position = enemy.Transform.position;
         Vector3 weaponRoot = enemy.WeaponRoot.position;
         _groupScratch.Clear();
-        foreach (BotComponent other in manager.Bots.Values)
+        if (!crossGroup)
         {
-            if (other == null || other.BotOwner == null || other.BotOwner.IsDead || !IsRogueOrGoon(other.BotOwner))
+            // An ordinary squad: only the reporter's own squad learns about it, after the squad alert's short delay.
+            BotsGroup own = Bot.BotOwner?.BotsGroup;
+            if (own != null)
             {
-                continue;
+                _groupScratch.Add(own);
             }
-            BotsGroup group = other.BotOwner.BotsGroup;
-            if (group != null && !_groupScratch.Contains(group))
+        }
+        else
+        {
+            foreach (BotComponent other in manager.Bots.Values)
             {
-                _groupScratch.Add(group);
+                if (other == null || other.BotOwner == null || other.BotOwner.IsDead || !IsRogueOrGoon(other.BotOwner))
+                {
+                    continue;
+                }
+                BotsGroup group = other.BotOwner.BotsGroup;
+                if (group != null && !_groupScratch.Contains(group))
+                {
+                    _groupScratch.Add(group);
+                }
             }
         }
         Vector3 from = Bot.Position;
@@ -1559,7 +1586,9 @@ public class ShotReactionClass : BotComponentClassBase
             {
                 continue;
             }
-            float delay = Random.Range(fork.RogueReportDelayMin, Mathf.Max(fork.RogueReportDelayMin, fork.RogueReportDelayMax)) + (distance * fork.RogueReportDelayPerMeter);
+            float delay = crossGroup
+                ? Random.Range(fork.RogueReportDelayMin, Mathf.Max(fork.RogueReportDelayMin, fork.RogueReportDelayMax)) + (distance * fork.RogueReportDelayPerMeter)
+                : Random.Range(fork.ShotSquadAlertDelayMin, Mathf.Max(fork.ShotSquadAlertDelayMin, fork.ShotSquadAlertDelayMax));
             _reports.Add(new PendingReport
             {
                 Enemy = enemy,

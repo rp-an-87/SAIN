@@ -2054,6 +2054,12 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(1f, 120f, 1f)]
     public float ShotBulletStackReset = 20f;
 
+    [DataMember]
+    [Category("Shot Reaction/Rough area")]
+    [Name("Sightings Shared As Rough Points In All Squads")]
+    [Description("On = when a PMC, raider, scav or cultist sees the player, its squadmates get a rough point inside a ring (after the squad alert delay), narrowed like every rough area, instead of the exact position at once. Rogues and Goons always work this way (see Delayed Call-In). Bosses and followers keep the vanilla exact sharing. Off = ordinary squads share exactly.")]
+    public bool ShotSightingRingsSquads = true;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

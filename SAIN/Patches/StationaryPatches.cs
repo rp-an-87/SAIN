@@ -244,7 +244,8 @@ namespace SAIN.Patches.Generic
     /// <summary>
     /// Fork: vanilla BotsGroup.ReportAboutEnemy runs on every look tick of every bot that sees the player (hundreds of calls per second): it writes the player's exact position
     /// into the reporter's group at once and relays it to every Rogue and Goon group. For a Rogue or Goon reporting the player that is replaced by one report per group per second,
-    /// delivered later as a rough point (RogueReportDelayed). Reports about other bots, or from other kinds of bots, are untouched.
+    /// delivered later as a rough point (RogueReportDelayed). PMCs, raiders, scavs and cultists reporting the player are treated the same way inside their own squad
+    /// (ShotSightingRingsSquads, short squad delay). Reports about other bots, and from bosses and followers, are untouched.
     /// </summary>
     public class RogueReportSource_Patch : ModulePatch
     {
@@ -257,12 +258,17 @@ namespace SAIN.Patches.Generic
         public static bool Patch(BotsGroup __instance, IPlayer enemy, EEnemyPartVisibleType isVisibleOnlyBySence, BotOwner reporter)
         {
             var fork = SAINPlugin.LoadedPreset.GlobalSettings.Fork;
-            if (!fork.RogueReportDelayed || enemy == null || enemy.AIData?.IsAI == true || reporter == null || !ShotReactionClass.IsRogueOrGoon(reporter))
+            if (!fork.RogueReportDelayed || enemy == null || enemy.AIData?.IsAI == true || reporter == null)
+            {
+                return true;
+            }
+            bool rogue = ShotReactionClass.IsRogueOrGoon(reporter);
+            if (!rogue && !(fork.ShotSightingRingsSquads && ShotReactionClass.IsOrdinarySquadBot(reporter)))
             {
                 return true;
             }
             BotComponent bot = MountedHelpers.GetBot(reporter);
-            if (bot == null || bot.ShotReaction == null)
+            if (bot == null || bot.ShotReaction == null || (!rogue && !bot.ShotReaction.Enabled))
             {
                 return true;
             }
@@ -276,7 +282,7 @@ namespace SAIN.Patches.Generic
                 return false;
             }
             ShotPerf.ReportAccepted++;
-            bot.ShotReaction.QueueGroupReports(enemy, isVisibleOnlyBySence);
+            bot.ShotReaction.QueueGroupReports(enemy, isVisibleOnlyBySence, rogue);
             return false;
         }
     }
