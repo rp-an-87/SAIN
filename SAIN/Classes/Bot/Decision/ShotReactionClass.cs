@@ -1348,14 +1348,15 @@ public class ShotReactionClass : BotComponentClassBase
         public Vector3 WeaponRoot;
         public float Time;
         public string From;
+        public BotOwner Reporter;
     }
 
     private readonly List<PendingReport> _reports = [];
 
     /// <summary>Another Rogue's enemy report is delivered later (see RogueReport_Patch).</summary>
-    public void QueueReport(IPlayer enemy, Vector3 position, Vector3 weaponRoot, float deliverAt, string from = null)
+    public void QueueReport(IPlayer enemy, Vector3 position, Vector3 weaponRoot, float deliverAt, string from = null, BotOwner reporter = null)
     {
-        _reports.Add(new PendingReport { Enemy = enemy, Position = position, WeaponRoot = weaponRoot, Time = deliverAt, From = from });
+        _reports.Add(new PendingReport { Enemy = enemy, Position = position, WeaponRoot = weaponRoot, Time = deliverAt, From = from, Reporter = reporter });
     }
 
     private void ProcessReports(float now)
@@ -1368,6 +1369,11 @@ public class ShotReactionClass : BotComponentClassBase
                 continue;
             }
             _reports.RemoveAt(i);
+            // A reporter that died while its report was on the way sends nothing.
+            if (report.Reporter != null && report.Reporter.IsDead)
+            {
+                continue;
+            }
             long started = ShotPerf.Start();
             DeliverReport(report, now);
             ShotPerf.Stop(ShotPerf.Deliver, started);
