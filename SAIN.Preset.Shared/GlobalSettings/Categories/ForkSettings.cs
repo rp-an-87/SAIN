@@ -2067,6 +2067,60 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("On = when a PMC, raider, scav or cultist sees the player, its squadmates get a rough point inside a ring (after the squad alert delay), narrowed like every rough area, instead of the exact position at once. Rogues and Goons always work this way (see Delayed Call-In). Bosses and followers keep the vanilla exact sharing. Off = ordinary squads share exactly.")]
     public bool ShotSightingRingsSquads = true;
 
+    [DataMember]
+    [Category("Shot Reaction/Rogue pressure")]
+    [Name("Rogue Pressure Retreat Enabled")]
+    [Description("Rogues and Goons that keep getting information about the player (shots they hear, hits, close bullets, alerts, reports) for a while without ever seeing him give the position up: a full retreat, down off the roof. A window for the sniper, then they are gone. A Rogue on a mounted gun leaves it. Off = they stay and keep covering.")]
+    public bool RoguePressureRetreatEnabled = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue pressure")]
+    [Name("Pressure Time Min (s)")]
+    [Description("Shortest time (seconds) of pressure before a Rogue or Goon retreats. Each bot picks a random time between Min and Max.")]
+    [MinMax(10f, 600f, 1f)]
+    public float RoguePressureTimeMin = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue pressure")]
+    [Name("Pressure Time Max (s)")]
+    [Description("Longest time (seconds) of pressure before a Rogue or Goon retreats.")]
+    [MinMax(10f, 600f, 1f)]
+    public float RoguePressureTimeMax = 90f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue pressure")]
+    [Name("Pressure Gap (s)")]
+    [Description("A quiet spell longer than this (no information about the player reaches the squad) resets the pressure clock.")]
+    [MinMax(5f, 120f, 1f)]
+    public float RoguePressureGap = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue pressure")]
+    [Name("Pressure Retreat Cooldown (s)")]
+    [Description("A Rogue or Goon that made a pressure retreat does not make another for this many seconds.")]
+    [MinMax(0f, 1800f, 1f)]
+    public float RoguePressureCooldown = 180f;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue pressure")]
+    [Name("Pressure Retreat Goes Down")]
+    [Description("On = the retreat point has to be lower than the bot is now by at least Retreat Down Min (off the roof); if there is none it goes anywhere out of sight. Off = any retreat point.")]
+    public bool RogueRetreatDown = true;
+
+    [DataMember]
+    [Category("Shot Reaction/Rogue pressure")]
+    [Name("Retreat Down Min (m)")]
+    [Description("How much lower (meters) a retreat point has to be than the bot's position for a retreat that goes down.")]
+    [MinMax(0f, 30f, 1f)]
+    public float ShotRetreatDownMin = 3f;
+
+    [DataMember]
+    [Category("Shot Reaction/Self preservation")]
+    [Name("Near-Hit Distance (m)")]
+    [Description("A bullet passing within this many meters of a bot counts as a close bullet for the shot reaction (alerts, self preservation, duel and pressure retreats), for every bot with the shot reaction on, Rogues and Goons included. Stock SAIN uses about 2 m. The game only reports bullets within 10 m. A Rogue on a mounted gun keeps its own wider range. A close bullet at a Rogue or Goon also counts for the Rogues and Goons within the Narrowing Shared Radius.")]
+    [MinMax(0f, 10f, 1f)]
+    public float ShotNearHitDistance = 5f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

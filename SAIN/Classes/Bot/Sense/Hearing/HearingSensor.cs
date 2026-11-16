@@ -54,6 +54,9 @@ public class HearingSensor : BotComponentClassBase
         bool underFire = FlyByDistance <= SAINPlugin.LoadedPreset.GlobalSettings.Mind.MaxUnderFireDistance;
         // Fork: a Rogue on a mounted gun reacts to bullets passing further away than other bots do (shot reaction only).
         bool mountedClose = FlyByDistance <= Bot.ShotReaction.MountedFlyByRange;
+        // Fork: a bullet passing within the near-hit distance counts as a close bullet for the shot reaction (stock SAIN: Max Under Fire Distance, about 2 m).
+        bool nearHit = FlyByDistance <= Bot.ShotReaction.NearHitDistance;
+        mountedClose |= nearHit;
         if (HearingInput.IsIgnoringSounds(underFire || mountedClose))
         {
             return;

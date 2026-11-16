@@ -825,6 +825,15 @@ public class ShotReactionClass : BotComponentClassBase
         ProcessShot(enemy, _callInDistance, _callInHit);
     }
 
+    /// <summary>
+    /// How close (meters) a bullet has to pass for the shot reaction to count it as a close bullet: the fork's near-hit distance for every bot with the reaction on
+    /// (the game only reports bullets within 10 m). Gunners on a mounted gun have their own, wider range (MountedFlyByRange).
+    /// </summary>
+    public float NearHitDistance
+    {
+        get { return Enabled ? GlobalSettings.Fork.ShotNearHitDistance : 0f; }
+    }
+
     /// <summary>A close bullet adds to the pressure on this bot (see TrySelfPreservation); the pressure is forgotten after a quiet spell.</summary>
     private void NoteBulletPressure(float now)
     {
@@ -836,12 +845,40 @@ public class ShotReactionClass : BotComponentClassBase
         _bulletStackTime = now;
     }
 
+    /// <summary>A close bullet at a Rogue or Goon adds to the pressure of the Rogues and Goons within AreaShareRadius of it too (the same distance that shares the narrowing).</summary>
+    private void ShareBulletPressure(float now)
+    {
+        float radius = GlobalSettings.Fork.AreaShareRadius;
+        if (radius <= 0f || !IsRogueOrGoon(Bot.BotOwner))
+        {
+            return;
+        }
+        BotManagerComponent manager = BotManagerComponent.Instance;
+        if (manager?.Bots == null)
+        {
+            return;
+        }
+        float radiusSqr = radius * radius;
+        foreach (BotComponent other in manager.Bots.Values)
+        {
+            if (other == null || other == Bot || other.BotOwner == null || other.BotOwner.IsDead || other.ShotReaction == null || !IsRogueOrGoon(other.BotOwner))
+            {
+                continue;
+            }
+            if ((other.Position - Bot.Position).sqrMagnitude <= radiusSqr)
+            {
+                other.ShotReaction.NoteBulletPressure(now);
+            }
+        }
+    }
+
     private void ProcessShot(Enemy enemy, float distance, bool hit)
     {
         float now = Time.time;
         if (!hit)
         {
             NoteBulletPressure(now);
+            ShareBulletPressure(now);
         }
         AlertRogues(enemy.EnemyPlayer, hit, now);
         if (TryStationaryGate(enemy, hit, now))
@@ -2784,6 +2821,17 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     private bool TryStartRelocating(float? distanceOverride = null)
     {
+        // A pressure retreat of a Rogue or Goon goes down (off the roof) when it can; any other point is the fallback.
+        if (_retreatDown)
+        {
+            _requireLower = true;
+            bool lower = TryRelocatePass(distanceOverride, true) || TryRelocatePass(distanceOverride, false);
+            _requireLower = false;
+            if (lower)
+            {
+                return true;
+            }
+        }
         // A point out of the shooter's line of sight is preferred (the bot is gone, not just further away); any point is the fallback.
         return TryRelocatePass(distanceOverride, true) || TryRelocatePass(distanceOverride, false);
     }
@@ -3252,11 +3300,16 @@ public class ShotReactionClass : BotComponentClassBase
                 {
                     continue;
                 }
+                if (_requireLower && sampled.Value.y > from.y - fork.ShotRetreatDownMin)
+                {
+                    continue;
+                }
                 if (requireBrokenLos && !BreaksLineOfSight(shotArea, sampled.Value))
                 {
                     continue;
                 }
-                float score = ((2 - step) * 0.25f) + DestinationCoverQuality(sampled.Value, shotArea) + SquadBonus(sampled.Value) + Random.Range(0f, 0.6f);
+                float score = ((2 - step) * 0.25f) + DestinationCoverQuality(sampled.Value, shotArea) + SquadBonus(sampled.Value) + Random.Range(0f, 0.6f)
+                    + (_requireLower ? Mathf.Clamp01((from.y - sampled.Value.y) / 15f) * 0.5f : 0f);
                 if (found && score <= bestScore)
                 {
                     continue;
@@ -3665,6 +3718,13 @@ public class ShotReactionClass : BotComponentClassBase
     // ---- Duel retreat: a long fight the bot cannot win ----
 
     private readonly Queue<float> _duelHits = new();
+    private float _pressure;
+    private float _pressureTarget = 75f;
+    private float _pressureLastCheck;
+    private float _nextPressureCheck;
+    private float _pressureCooldownUntil;
+    private bool _retreatDown;
+    private bool _requireLower;
     private float _duelSeen;
     private float _duelTarget = 30f;
     private float _duelLastSeen;
@@ -3673,6 +3733,71 @@ public class ShotReactionClass : BotComponentClassBase
     private float _duelCooldownUntil;
     private float _duelLastHitPlayer = -999f;
     private bool _forcedRetreat;
+
+    /// <summary>
+    /// Rogues and Goons: the player keeps giving their squad information (shots they hear, hits, close bullets, alerts, reports) for a random RoguePressureTimeMin to RoguePressureTimeMax
+    /// seconds (a gap over RoguePressureGap resets the clock) without the bot ever seeing the player: it cannot pinpoint him and gives the position up, a full retreat down
+    /// off the roof (RogueRetreatDown). A window for the sniper, then the Rogues are gone. A gunner leaves its gun. Once per RoguePressureCooldown.
+    /// </summary>
+    private void TryPressureRetreat(float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (!fork.RoguePressureRetreatEnabled || now < _nextPressureCheck || !Enabled || !IsRogueOrGoon(Bot.BotOwner))
+        {
+            return;
+        }
+        float dt = Mathf.Min(now - _pressureLastCheck, 2f);
+        _pressureLastCheck = now;
+        _nextPressureCheck = now + 1f;
+        KnowState state = GetKnowState();
+        bool pressure = state.Count > 0 && now - state.LastInfo <= fork.RoguePressureGap;
+        Enemy goal = Bot.GoalEnemy;
+        bool sees = goal != null && goal.IsVisible && goal.CanShoot;
+        if (!pressure)
+        {
+            _pressure = 0f;
+            return;
+        }
+        if (sees)
+        {
+            // A bot that really sees the player duels instead (see TryDuelRetreat).
+            return;
+        }
+        if (_pressure <= 0f)
+        {
+            _pressureTarget = Random.Range(fork.RoguePressureTimeMin, Mathf.Max(fork.RoguePressureTimeMin, fork.RoguePressureTimeMax));
+        }
+        _pressure += dt;
+        if (_pressure < _pressureTarget || now < _pressureCooldownUntil || Relocating || _vaguePositionTime <= 0f)
+        {
+            return;
+        }
+        Enemy enemy = _enemy ?? goal;
+        if (enemy == null)
+        {
+            return;
+        }
+        float seconds = _pressure;
+        _enemy = enemy;
+        _forcedRetreat = true;
+        _retreatDown = fork.RogueRetreatDown;
+        BotStationaryWeaponData stationary = StationaryData;
+        if (stationary != null && (stationary.Taken || stationary.WantToTake) && stationary.CurLink != null)
+        {
+            AbandonStationary(stationary, now, "pressure retreat");
+        }
+        bool started = TryStartRelocating();
+        _retreatDown = false;
+        _pressure = 0f;
+        if (started)
+        {
+            _pressureCooldownUntil = now + fork.RoguePressureCooldown;
+            LogEvent($"pressure retreat: {seconds:0} s of information about the player without seeing him (limit {_pressureTarget:0} s), going down: {fork.RogueRetreatDown}");
+            return;
+        }
+        _forcedRetreat = false;
+        _pressureCooldownUntil = now + 30f;
+    }
 
     /// <summary>The player hit this bot, or a bullet of the player passed close to it (seen or not): counts toward a duel retreat.</summary>
     private void NoteDuelHit(Enemy enemy)
@@ -3773,6 +3898,7 @@ public class ShotReactionClass : BotComponentClassBase
         ProcessPendingRogueAlert(now);
         ProcessReports(now);
         TryDuelRetreat(now);
+        TryPressureRetreat(now);
         TickAreaSuppression(now);
         TryProximityInterrupt(now);
         TryOtherEnemyInterrupt(now);
