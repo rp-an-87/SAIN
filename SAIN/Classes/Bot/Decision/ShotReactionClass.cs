@@ -318,7 +318,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         _lastDegradeTime = now;
 
-        float uncertainty = ComputeUncertainty(enemy.EnemyPlayer, distance, hit);
+        float uncertainty = ComputeUncertainty(enemy.EnemyPlayer, distance, hit, enemy);
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = Random.insideUnitCircle * radius;
         Vector3 point = enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y);
@@ -387,22 +387,31 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>
-    /// How unsure a bot is where a shot came from (meters, uncapped): distance x error per meter x hit factor x concealment (prone, suppressed) x weather x light.
-    /// The guessed position's error radius is this clamped to the position error cap; the uncertainty itself feeds the decisions (fight less, investigate less, mounted guns cannot pinpoint).
+    /// How unsure this bot is where a shot came from (meters, 0 to the cap). It grows with the distance to the shooter relative to the bot's own view distance
+    /// (its current effective view distance for that shooter, which already holds weather, night, goggles, lights, movement, flare and gear such as a backpack):
+    /// 20 m at exactly sight, linear closer, 15 m more per further view distance beyond it. On top: a hit (small bonus) and the shooter's concealment
+    /// (prone, bush, suppressed weapon, a tracer round). The guessed position's error radius is this (never below the minimum error).
     /// </summary>
-    public static float ComputeUncertainty(IPlayer shooter, float distance, bool hit)
+    public float ComputeUncertainty(IPlayer shooter, float distance, bool hit, Enemy enemy)
     {
         ForkSettings fork = GlobalSettings.Fork;
-        float uncertainty = distance * fork.ShotPositionErrorPerMeter * (hit ? fork.ShotHitErrorFactor : 1f) * ConcealmentErrorFactor(shooter);
-        BotManagerComponent manager = BotManagerComponent.Instance;
-        if (manager != null)
+        float ratio = distance / SightDistance(enemy);
+        float baseUncertainty = ratio <= 1f
+            ? fork.ShotUncertaintyAtSight * ratio
+            : fork.ShotUncertaintyAtSight + fork.ShotUncertaintyBeyondSight * (ratio - 1f);
+        float uncertainty = baseUncertainty * (hit ? fork.ShotHitErrorFactor : 1f) * ConcealmentErrorFactor(shooter);
+        return Mathf.Min(uncertainty, fork.ShotPositionErrorMax);
+    }
+
+    /// <summary>The bot's current effective view distance for this shooter (meters): its visible distance plus the per shooter bonus (movement, flare, gear), at least the minimum sight.</summary>
+    private float SightDistance(Enemy enemy)
+    {
+        float sight = Bot.BotOwner?.LookSensor != null ? Bot.BotOwner.LookSensor.VisibleDist : 0f;
+        if (enemy?.Vision?._visionDistance != null)
         {
-            float weather = manager.WeatherVision != null ? manager.WeatherVision.GainSightModifier : 1f;
-            float light = manager.TimeVision != null ? manager.TimeVision.TimeGainSightModifier : 1f;
-            uncertainty *= 1f + Mathf.Max(weather - 1f, 0f) * fork.ShotWeatherErrorStrength;
-            uncertainty *= 1f + Mathf.Max(light - 1f, 0f) * fork.ShotLightErrorStrength;
+            sight += enemy.Vision._visionDistance.Value;
         }
-        return uncertainty;
+        return Mathf.Max(sight, GlobalSettings.Fork.ShotUncertaintyMinSight);
     }
 
     /// <summary>The uncertainty of the rough shot area while it is fresh (0 when there is no fresh area).</summary>
@@ -495,7 +504,7 @@ public class ShotReactionClass : BotComponentClassBase
     private void LearnFromAlert(Enemy enemy, float alertUncertainty)
     {
         ForkSettings fork = GlobalSettings.Fork;
-        float own = ComputeUncertainty(enemy.EnemyPlayer, enemy.RealDistance, false);
+        float own = ComputeUncertainty(enemy.EnemyPlayer, enemy.RealDistance, false, enemy);
         float uncertainty = Mathf.Max(own, alertUncertainty);
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = Random.insideUnitCircle * radius;
@@ -767,7 +776,7 @@ public class ShotReactionClass : BotComponentClassBase
             }
             Vector3 killer = lastAggressor.Position;
             float distance = (killer - Bot.Position).magnitude;
-            float uncertainty = ComputeUncertainty(lastAggressor, distance, true);
+            float uncertainty = ComputeUncertainty(lastAggressor, distance, true, null);
             float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
             Vector2 offset = Random.insideUnitCircle * radius;
             RememberVaguePosition(killer + new Vector3(offset.x, 0f, offset.y), uncertainty);
@@ -1229,7 +1238,8 @@ public class ShotReactionClass : BotComponentClassBase
             return true;
         }
 
-        bool close = _vaguePositionTime > 0f && (Bot.Position - _vaguePosition).magnitude < INVESTIGATE_STOP_DISTANCE;
+        // Walking closer does not improve a fix that is only good to the uncertainty: it stops inside half of it.
+        bool close = _vaguePositionTime > 0f && (Bot.Position - _vaguePosition).magnitude < Mathf.Max(INVESTIGATE_STOP_DISTANCE, _vagueUncertainty * 0.5f);
         bool sound = now - _investigateStart > INVESTIGATE_SOUND_GRACE && enemy.Hearing.Heard && enemy.Hearing.TimeSinceHeard < INVESTIGATE_SOUND_AGE;
         if (close || sound)
         {
@@ -1315,11 +1325,12 @@ public class ShotReactionClass : BotComponentClassBase
             decision = ECombatDecision.SeekCover;
             return true;
         }
-        if (inCover && !_advanceRolled && advanceFork.ShotAdvanceNoCoverChance > 0f && _vaguePositionTime > 0f && (Bot.Position - area).magnitude > INVESTIGATE_STOP_DISTANCE)
+        if (inCover && !_advanceRolled && advanceFork.ShotAdvanceNoCoverChance > 0f && _vaguePositionTime > 0f && (Bot.Position - area).magnitude > Mathf.Max(INVESTIGATE_STOP_DISTANCE, _vagueUncertainty * 0.5f))
         {
             // No closer cover but still far from the area: an aggressive bot runs toward it instead of sitting (once per investigation).
             _advanceRolled = true;
             float advanceChance = advanceFork.ShotAdvanceNoCoverChance;
+            advanceChance *= Mathf.Lerp(1f, GlobalSettings.Fork.ShotUncertaintyInvestigateMin, GlobalSettings.Fork.ShotUncertaintyHigh > 0f ? Mathf.InverseLerp(0f, GlobalSettings.Fork.ShotUncertaintyHigh, _vagueUncertainty) : 0f);
             switch (Bot.Info.Personality)
             {
                 case EPersonality.Wreckless:
@@ -1611,6 +1622,13 @@ public class ShotReactionClass : BotComponentClassBase
             Bot.Suppression.ResetSuppressing();
             return;
         }
+        float searchMax = GlobalSettings.Fork.ShotFightFireMaxUncertainty;
+        if (searchMax > 0f && FreshUncertainty > searchMax)
+        {
+            // Too unsure where the shooter is: it watches the area without firing.
+            Bot.Suppression.ResetSuppressing();
+            return;
+        }
         float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
         if ((Bot.Position - area).magnitude > reach * FIGHT_REACH_LIMIT)
         {
@@ -1713,9 +1731,19 @@ public class ShotReactionClass : BotComponentClassBase
         {
             _fireCycleStart = now;
         }
-        float cycle = fork.ShotFightFireTime + fork.ShotFightOnFirePause;
+        // The less sure the bot is where the shooter is, the less it fires: nothing above the limit, shorter bursts and longer pauses below it.
+        float fireUncertainty = FreshUncertainty;
+        if (fork.ShotFightFireMaxUncertainty > 0f && fireUncertainty > fork.ShotFightFireMaxUncertainty)
+        {
+            _blindFiring = false;
+            Bot.Suppression.ResetSuppressing();
+            return false;
+        }
+        float fireT = fork.ShotUncertaintyHigh > 0f ? Mathf.InverseLerp(0f, fork.ShotUncertaintyHigh, fireUncertainty) : 0f;
+        float fireTime = fork.ShotFightFireTime * Mathf.Lerp(1f, fork.ShotUncertaintyFireTimeMin, fireT);
+        float cycle = fireTime + fork.ShotFightOnFirePause * Mathf.Lerp(1f, fork.ShotUncertaintyPauseMax, fireT);
         float phase = (now - _fireCycleStart) % cycle;
-        if (phase >= fork.ShotFightFireTime)
+        if (phase >= fireTime)
         {
             _blindFiring = false;
             Bot.Suppression.ResetSuppressing();
@@ -1787,6 +1815,13 @@ public class ShotReactionClass : BotComponentClassBase
         {
             return false;
         }
+        // A grenade's splash is a few meters wide: no throw at an area that is too uncertain, fewer throws the vaguer it is.
+        float nadeUncertainty = FreshUncertainty;
+        if (fork.ShotNadeMaxUncertainty > 0f && nadeUncertainty > fork.ShotNadeMaxUncertainty)
+        {
+            return false;
+        }
+        chance *= Mathf.Lerp(1f, 0.3f, fork.ShotUncertaintyHigh > 0f ? Mathf.InverseLerp(0f, fork.ShotUncertaintyHigh, nadeUncertainty) : 0f);
         switch (Bot.Info.Personality)
         {
             case EPersonality.Wreckless:
