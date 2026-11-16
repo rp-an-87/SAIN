@@ -318,7 +318,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         _lastDegradeTime = now;
 
-        float uncertainty = ComputeUncertainty(enemy.EnemyPlayer, distance, hit, enemy);
+        float uncertainty = Shrunk(ComputeUncertainty(enemy.EnemyPlayer, distance, hit, enemy), fork.AreaFloorOuter, NoteInformation(now));
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 point = enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y);
@@ -454,6 +454,41 @@ public class ShotReactionClass : BotComponentClassBase
         return new Vector2(Mathf.Cos(angle) * radius, Mathf.Sin(angle) * radius);
     }
 
+    /// <summary>
+    /// One piece of information about the player's position reached this bot (a shot, hit, alert or report). Counts at most once per cooldown (a burst is one piece)
+    /// and the count is forgotten after the memory time without any. Returns the shrink factor for areas made now (1 for the first piece).
+    /// </summary>
+    private float NoteInformation(float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float shrink = Mathf.Clamp(fork.AreaShrink, 0.1f, 1f);
+        if (shrink >= 1f)
+        {
+            return 1f;
+        }
+        if (now - _knowLastInfo > fork.AreaMemory)
+        {
+            _knowCount = 0;
+        }
+        _knowLastInfo = now;
+        if (_knowCount == 0 || now - _knowLastCount >= fork.AreaShrinkCooldown)
+        {
+            _knowCount++;
+            _knowLastCount = now;
+            if (_knowCount >= 2 && (_knowCount <= 3 || _knowCount % 5 == 0))
+            {
+                LogEvent($"more information about the player's position: piece #{_knowCount}, areas now x{Mathf.Pow(shrink, _knowCount - 1):0.00} (floor {fork.AreaFloorOuter:0} m)");
+            }
+        }
+        return Mathf.Pow(shrink, _knowCount - 1);
+    }
+
+    /// <summary>The value narrowed by the factor, but never below the floor (an area that was smaller to begin with stays as it was).</summary>
+    private static float Shrunk(float value, float floor, float factor)
+    {
+        return factor >= 1f ? value : Mathf.Max(value * factor, Mathf.Min(value, floor));
+    }
+
     private void RememberVaguePosition(Vector3 position, float uncertainty)
     {
         _vaguePosition = position;
@@ -539,7 +574,7 @@ public class ShotReactionClass : BotComponentClassBase
     {
         ForkSettings fork = GlobalSettings.Fork;
         float own = ComputeUncertainty(enemy.EnemyPlayer, enemy.RealDistance, false, enemy);
-        float uncertainty = Mathf.Max(own, alertUncertainty);
+        float uncertainty = Shrunk(Mathf.Max(own, alertUncertainty), fork.AreaFloorOuter, NoteInformation(Time.time));
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 point = (center ?? enemy.EnemyPosition) + new Vector3(offset.x, 0f, offset.y);
@@ -1321,15 +1356,9 @@ public class ShotReactionClass : BotComponentClassBase
             group.SetEnemyPos(report.Enemy, report.Position, report.WeaponRoot, EEnemyPartVisibleType.Sence);
             return;
         }
-        if (now - _lastReportTime > fork.RogueReportMemory)
-        {
-            _reportCount = 0;
-        }
-        _reportCount++;
-        _lastReportTime = now;
-        float shrink = Mathf.Pow(Mathf.Clamp(fork.RogueReportShrink, 0.1f, 1f), _reportCount - 1);
-        float outer = Mathf.Max(fork.RogueReportFloorOuter, fork.RogueReportRingOuter * shrink);
-        float inner = Mathf.Min(outer, Mathf.Max(fork.RogueReportFloorInner, fork.RogueReportRingInner * shrink));
+        float factor = NoteInformation(now);
+        float outer = Shrunk(fork.RogueReportRingOuter, fork.AreaFloorOuter, factor);
+        float inner = Mathf.Min(outer, Shrunk(fork.RogueReportRingInner, fork.AreaFloorInner, factor));
         Vector2 offset = RingOffset(inner, outer);
         Vector3 delta = new Vector3(offset.x, 0f, offset.y);
         Vector3 point = report.Position + delta;
@@ -1339,9 +1368,9 @@ public class ShotReactionClass : BotComponentClassBase
         }
         group.SetEnemyPos(report.Enemy, point, report.WeaponRoot + (point - report.Position), EEnemyPartVisibleType.Sence);
         RememberVaguePosition(point, outer);
-        if (_reportCount == 1 || _reportCount % 5 == 0)
+        if (_knowCount <= 1 || _knowCount % 5 == 0)
         {
-            LogEvent($"report #{_reportCount} from {report.From}: rough point {(point - report.Position).magnitude:0} m from the player (ring {inner:0}-{outer:0} m)");
+            LogEvent($"report from {report.From}: rough point {(point - report.Position).magnitude:0} m from the player (ring {inner:0}-{outer:0} m, piece #{_knowCount})");
         }
     }
 
@@ -3582,8 +3611,9 @@ public class ShotReactionClass : BotComponentClassBase
     /// <summary>A Rogue that radioed a hit or bullet this recently has already called it in: its death sends no second alert.</summary>
     private const float ALERT_SENT_WINDOW = 3f;
 
-    private int _reportCount;
-    private float _lastReportTime = -999f;
+    private int _knowCount;
+    private float _knowLastCount = -999f;
+    private float _knowLastInfo = -999f;
     private bool _deathHandled;
     private float _lastAlertSent = -999f;
     private bool _callInPending;
