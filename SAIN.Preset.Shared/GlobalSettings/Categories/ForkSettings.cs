@@ -2448,6 +2448,20 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(0f, 15f, 10f)]
     public float ShotSquadFollowDelayMax = 4f;
 
+    [DataMember]
+    [Category("Duel/Clock")]
+    [Name("Duel Forgotten After (s)")]
+    [Description("A bot that stops seeing you and firing at you for this long is no longer dueling: the clock and its pressure reset. A bot that sees you but does not fire resets too. Related: Duel Forgotten After (Sniper/Marksman), Time Min/Max, Duel Cooldown.")]
+    [MinMax(3f, 120f, 1f)]
+    public float ShotDuelResetTime = 15f;
+
+    [DataMember]
+    [Category("Duel/Clock")]
+    [Name("Duel Forgotten After (Sniper/Marksman) (s)")]
+    [Description("The same for a bot with a marksman or sniper rifle, which fires slowly: a longer downtime between shots does not end the duel. Never shorter than Duel Forgotten After. Related: Duel Weight settings, Duel Forgotten After.")]
+    [MinMax(3f, 180f, 1f)]
+    public float ShotDuelResetTimeLongRifle = 30f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

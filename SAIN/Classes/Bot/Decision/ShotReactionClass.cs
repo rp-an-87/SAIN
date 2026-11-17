@@ -4257,6 +4257,13 @@ public class ShotReactionClass : BotComponentClassBase
     private bool _squadLossHandled;
     private float _nextDuelLog;
 
+    /// <summary>Seconds without seeing the player and firing after which the duel is forgotten (the clock resets): longer for marksman and sniper rifles, which fire slowly.</summary>
+    private float DuelResetTime()
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        return IsLongRifle() ? Mathf.Max(fork.ShotDuelResetTimeLongRifle, fork.ShotDuelResetTime) : fork.ShotDuelResetTime;
+    }
+
     private bool IsLongRifle()
     {
         EWeaponClass weaponClass = Bot.Info.WeaponInfo.EWeaponClass;
@@ -4730,7 +4737,7 @@ public class ShotReactionClass : BotComponentClassBase
         Enemy enemy = Bot.GoalEnemy;
         if (enemy == null || enemy.IsAI || !Enemy.IsEnemyActive(enemy) || (fork.ShotReactionPlayerOnly && enemy.EnemyPlayer?.IsYourPlayer != true))
         {
-            if (now - _duelLastSeen > 15f)
+            if (now - _duelLastSeen > DuelResetTime())
             {
                 _duelSeen = 0f;
             }
@@ -4768,7 +4775,7 @@ public class ShotReactionClass : BotComponentClassBase
             _duelSeen = Mathf.Min(_duelSeen + dt, 600f);
             _duelLastSeen = now;
         }
-        else if (now - _duelLastSeen > 15f)
+        else if (now - _duelLastSeen > DuelResetTime())
         {
             _duelSeen = 0f;
         }
