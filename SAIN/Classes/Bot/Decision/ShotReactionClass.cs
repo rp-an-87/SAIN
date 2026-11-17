@@ -3945,9 +3945,13 @@ public class ShotReactionClass : BotComponentClassBase
     private float _pushUntil;
     private Enemy _pushEnemy;
     private float _pushRunUntil;
+    private float _pushStart;
+    private bool _pushSquadLossChecked;
 
     private void StartPush(Enemy enemy, float now)
     {
+        _pushStart = now;
+        _pushSquadLossChecked = false;
         _pushEnemy = enemy;
         _pushUntil = now + GlobalSettings.Fork.ShotDuelPushTime;
         _pushRunUntil = 0f;
@@ -4009,6 +4013,21 @@ public class ShotReactionClass : BotComponentClassBase
             _duelSeen = Mathf.Max(_duelTarget, 1f);
             _duelCooldownUntil = 0f;
             return false;
+        }
+        // A squadmate killed during the push (at any range outside close range) may break it: usually, not always, more for a bot with low resolve.
+        if (!_pushSquadLossChecked && _squadLossTime > _pushStart && now - _squadLossTime < fork.ShotDuelSquadLossTime)
+        {
+            _pushSquadLossChecked = true;
+            float pushResolve = DuelResolve(enemy);
+            float breakChance = Mathf.Lerp(0.8f, 0.3f, pushResolve);
+            if (Random.value < breakChance)
+            {
+                EndPush($"a squadmate was killed (chance {breakChance:0.00}, resolve {pushResolve:0.00}), it leaves instead");
+                _duelSeen = Mathf.Max(_duelTarget, 1f);
+                _duelForceLeave = true;
+                _duelCooldownUntil = 0f;
+                return false;
+            }
         }
         SprintWhileInvestigating = false;
         Vector3 area = enemy.EnemyPosition;

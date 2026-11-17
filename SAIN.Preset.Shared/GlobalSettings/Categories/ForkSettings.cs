@@ -2307,9 +2307,9 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Duel/Squad loss")]
     [Name("Squad Loss: Min Distance (share of reach)")]
-    [Description("The squad loss rule only applies when you are at least this share of the survivor's reach away; closer than that it stays a normal close fight. Related: Long Range Start.")]
+    [Description("The squad loss rule only applies when you are at least this share of the survivor's reach away. 0 = at every range outside the close-range zone, where there is no duel and the fight stays a normal close fight. It also applies to a push in progress: a squadmate killed during it may break the push. Related: Long Range Start, Duel Push Resolve.")]
     [MinMax(0f, 2f, 100f)]
-    public float ShotDuelSquadLossMinShare = 0.4f;
+    public float ShotDuelSquadLossMinShare = 0f;
 
     [DataMember]
     [Category("Duel/Clock")]
