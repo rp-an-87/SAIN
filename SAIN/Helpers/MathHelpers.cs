@@ -16,7 +16,8 @@ public static class MathHelpers
             }
             else if (type == typeof(int))
             {
-                return Mathf.Clamp(Mathf.RoundToInt((float)value), Mathf.RoundToInt(min), Mathf.RoundToInt(max));
+                // Fork: an int boxed as object cannot be unboxed as float ((float)value threw InvalidCastException and broke the editor).
+                return Mathf.Clamp((int)value, Mathf.RoundToInt(min), Mathf.RoundToInt(max));
             }
             else
             {
