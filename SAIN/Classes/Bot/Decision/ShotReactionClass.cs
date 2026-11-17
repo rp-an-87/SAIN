@@ -1261,10 +1261,6 @@ public class ShotReactionClass : BotComponentClassBase
         LogEvent($"kill not seen by any Rogue: nobody radios it, man-down call in {wait:0} s");
     }
 
-    /// <summary>
-    /// A bot was killed (an instant kill never reaches the hit reaction): a Rogue's death goes through the witness rules (see RogueKillAlert), any other bot alerts its squadmates as for a hit,
-    /// both with a vague area around the killer.
-    /// </summary>
     /// <summary>The squadmates of a bot that was killed by the player (within the squad role range) have lost one of their own: see NoteSquadLoss.</summary>
     private void NoteSquadLossForMates(IPlayer killer)
     {
@@ -1288,6 +1284,10 @@ public class ShotReactionClass : BotComponentClassBase
         }
     }
 
+    /// <summary>
+    /// A bot was killed (an instant kill never reaches the hit reaction): a Rogue's death goes through the witness rules (see RogueKillAlert), any other bot alerts its squadmates as for a hit,
+    /// both with a vague area around the killer.
+    /// </summary>
     private void OnOwnDeath(Player player, IPlayer lastAggressor, DamageInfo lastDamageInfo, EBodyPart lastBodyPart)
     {
         try
