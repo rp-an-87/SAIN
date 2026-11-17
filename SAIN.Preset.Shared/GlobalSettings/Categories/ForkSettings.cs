@@ -2070,7 +2070,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction/Rogue pressure")]
     [Name("Rogue Pressure Retreat Enabled")]
-    [Description("Rogues and Goons that keep getting shot at or near for a while (shots they hear, hits and close bullets at them or at Rogues and Goons within the Narrowing Shared Radius) without ever seeing the player give the position up: a full retreat, down off the roof. A window for the sniper, then they are gone. Only the Rogues near the shooting, not all of them. A Rogue on a mounted gun leaves it. Off = they stay and keep covering.")]
+    [Description("Rogues and Goons that keep getting shot at or near for a while (hits and bullets passing within the Near-Hit Distance, not shots they merely hear, at them or at Rogues and Goons within the Narrowing Shared Radius) without ever seeing the player give the position up: a full retreat, down off the roof. A window for the sniper, then they are gone. Only the Rogues near the shooting, not all of them. A Rogue on a mounted gun leaves it. Off = they stay and keep covering.")]
     public bool RoguePressureRetreatEnabled = true;
 
     [DataMember]
@@ -2090,7 +2090,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction/Rogue pressure")]
     [Name("Pressure Gap (s)")]
-    [Description("A quiet spell longer than this (no shot, hit or close bullet near the bot) resets the pressure clock.")]
+    [Description("A quiet spell longer than this (no hit or close bullet at or near the bot) resets the pressure clock.")]
     [MinMax(5f, 120f, 1f)]
     public float RoguePressureGap = 20f;
 

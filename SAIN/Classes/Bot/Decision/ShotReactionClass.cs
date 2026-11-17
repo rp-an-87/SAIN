@@ -351,7 +351,6 @@ public class ShotReactionClass : BotComponentClassBase
             return _vaguePosition;
         }
         _lastDegradeTime = now;
-        _localPressureTime = now;
 
         float uncertainty = Shrunk(ComputeUncertainty(enemy.EnemyPlayer, distance, hit, enemy), FloorAt(fork.AreaFloorOuter, distance, enemy), NoteInformation(now));
         float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
@@ -3995,7 +3994,7 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>
-    /// Rogues and Goons: the player keeps shooting near them (shots they hear, hits and close bullets at them or at Rogues and Goons within the shared radius) for a random
+    /// Rogues and Goons: the player keeps shooting near them (hits and close bullets at them or at Rogues and Goons within the shared radius) for a random
     /// RoguePressureTimeMin to RoguePressureTimeMax seconds (a gap over RoguePressureGap resets the clock) without the bot seeing the player: it cannot pinpoint him and gives the position up, a full retreat down
     /// off the roof (RogueRetreatDown). A window for the sniper, then the Rogues are gone. A gunner leaves its gun. Once per RoguePressureCooldown.
     /// </summary>
@@ -4009,7 +4008,7 @@ public class ShotReactionClass : BotComponentClassBase
         float dt = Mathf.Min(now - _pressureLastCheck, 2f);
         _pressureLastCheck = now;
         _nextPressureCheck = now + 1f;
-        // Local pressure only: shots this bot hears, hits and close bullets at it or at Rogues and Goons within the shared radius. Global alerts and far reports do not count,
+        // Local pressure only: hits and close bullets (not shots it merely hears) at it or at Rogues and Goons within the shared radius. Global alerts and far reports do not count,
         // so the retreat reaches the Rogues near the shooting, not all of them.
         bool pressure = now - _localPressureTime <= fork.RoguePressureGap;
         Enemy goal = Bot.GoalEnemy;
