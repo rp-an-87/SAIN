@@ -4000,16 +4000,16 @@ public class ShotReactionClass : BotComponentClassBase
     /// A break-off retreat out of the player's sight (hurt, or after a squadmate was killed). At close range it goes a short way and the path must not pass within ShotHurtAvoidDistance
     /// of the player; with no such way out (trapped) the bot stays and fights. Holds at least ShotHurtMinHold seconds when hurt, else the long retreat hold.
     /// </summary>
-    private bool BreakOff(Enemy enemy, float now, bool close, float mult, string why, bool hurt, string waitNote)
+    private bool BreakOff(Enemy enemy, float now, bool close, float mult, string why, bool hurt, string waitNote, bool notifySquad = true)
     {
         ForkSettings fork = GlobalSettings.Fork;
         _enemy = enemy;
         _forcedRetreat = true;
-        _avoidPos = enemy.EnemyPosition;
-        _avoidDistance = close ? Mathf.Max(fork.ShotHurtAvoidDistance, 0f) : 0f;
         // At close range the way out must also end out of the player's sight (no running into the open); with none the bot stays and fights.
         // A bot that knows where the player is retreats out of his sight (always at close range, see ShotHurtCloseNeedsHidden; farther away ShotKnownRetreatNeedsHidden), against his real position.
         bool known = KnowsPosition(enemy, out Vector3 knownPosition);
+        _avoidPos = knownPosition;
+        _avoidDistance = close && known ? Mathf.Max(fork.ShotHurtAvoidDistance, 0f) : 0f;
         _requireHidden = known && (close ? fork.ShotHurtCloseNeedsHidden : fork.ShotKnownRetreatNeedsHidden);
         _knownThreat = known ? knownPosition : null;
         bool started = TryStartRelocating(ScaledRelocateDistance(mult));
@@ -4024,6 +4024,10 @@ public class ShotReactionClass : BotComponentClassBase
             _longRetreat = true;
             _hurtLeave = hurt;
             LogEvent($"breaks off {why}: retreats, distance x{mult:0.0}{(close ? " (close range, out of the player's sight, a way out that does not pass the player)" : "")}, {waitNote}");
+            if (notifySquad)
+            {
+                OfferSquadFollow(now, ESquadFollow.Leave, hurt ? "hurt" : "squad loss", !hurt);
+            }
             return true;
         }
         _forcedRetreat = false;
@@ -4038,6 +4042,153 @@ public class ShotReactionClass : BotComponentClassBase
         ShootData fireData = Bot.BotOwner.ShootData;
         bool firing = fireData != null && now - fireData.LastTriggerPressd < GlobalSettings.Fork.ShotDuelBurstGap;
         return $"waited {now - since:0.0} s for a pause{(firing ? ", went mid-burst after the wait cap" : "")}";
+    }
+
+    // ---- squad follow: one bot of a squad leaves or pushes, its mates in the same fight may roll to do the same
+
+    private enum ESquadFollow
+    {
+        None,
+        Leave,
+        Push,
+    }
+
+    private ESquadFollow _followKind;
+    private float _followDue;
+    private string _followWhy = "";
+
+    /// <summary>
+    /// This bot of an ordinary squad or a Rogue squad starts a leave or a push: its squadmates in the same fight (within the squad role range, engaged) each roll to follow, after a short
+    /// staggered delay. A leave pulls at most ShotSquadFollowMaxShare of the squad (at least one mate stays, unless the leave came from a squad death); a push is joined with a lower chance, and only
+    /// by mates that could push themselves. A follower never pulls anyone else along (no chains).
+    /// </summary>
+    private void OfferSquadFollow(float now, ESquadFollow kind, string why, bool squadLoss)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float baseChance = kind == ESquadFollow.Leave ? fork.ShotSquadFollowLeaveChance : fork.ShotSquadFollowPushChance;
+        if (baseChance <= 0f || Bot.Squad?.Members == null || (!IsOrdinarySquadBot(Bot.BotOwner) && !IsRogueOrGoon(Bot.BotOwner)))
+        {
+            return;
+        }
+        int size = 0;
+        int leaving = 0;
+        foreach (var member in Bot.Squad.Members.Values)
+        {
+            if (member == null || member.BotOwner == null || member.BotOwner.IsDead || member.ShotReaction == null)
+            {
+                continue;
+            }
+            size++;
+            if (member == Bot || member.ShotReaction.Relocating || member.ShotReaction._followKind == ESquadFollow.Leave)
+            {
+                leaving++;
+            }
+        }
+        if (size < 2)
+        {
+            return;
+        }
+        int maxLeavers = squadLoss ? size : Mathf.Clamp(Mathf.RoundToInt(size * fork.ShotSquadFollowMaxShare), 1, size - 1);
+        float rangeSqr = fork.ShotSquadRoleRange * fork.ShotSquadRoleRange;
+        foreach (var member in Bot.Squad.Members.Values)
+        {
+            if (member == null || member == Bot || member.BotOwner == null || member.BotOwner.IsDead || member.ShotReaction == null)
+            {
+                continue;
+            }
+            if (kind == ESquadFollow.Leave && leaving >= maxLeavers)
+            {
+                break;
+            }
+            if ((member.Position - Bot.Position).sqrMagnitude > rangeSqr)
+            {
+                continue;
+            }
+            if (member.ShotReaction.ReceiveFollow(now, kind, why, squadLoss) && kind == ESquadFollow.Leave)
+            {
+                leaving++;
+            }
+        }
+    }
+
+    private bool ReceiveFollow(float now, ESquadFollow kind, string why, bool squadLoss)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (!Enabled || _followKind != ESquadFollow.None || Relocating || OnStationary() || now < _hurtCooldownUntil || _pushUntil > 0f)
+        {
+            return false;
+        }
+        Enemy enemy = Bot.GoalEnemy;
+        if (enemy == null || enemy.IsAI || !Enemy.IsEnemyActive(enemy) || (fork.ShotReactionPlayerOnly && enemy.EnemyPlayer?.IsYourPlayer != true) || !IsEngaged(now))
+        {
+            return false;
+        }
+        float distance = enemy.RealDistance;
+        float resolve = DuelResolve(enemy);
+        float chance;
+        if (kind == ESquadFollow.Leave)
+        {
+            // Low resolve follows more; a mate that merely got hurt is less of a reason, a squad death more of one.
+            chance = fork.ShotSquadFollowLeaveChance * Mathf.Lerp(1.4f, 0.6f, resolve) * (why == "hurt" ? 0.5f : 1f) * (squadLoss ? 1.4f : 1f);
+        }
+        else
+        {
+            float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+            if (IsCloseRange(distance) || distance > reach || DuelPull(now, distance) >= 0.5f)
+            {
+                return false;
+            }
+            chance = fork.ShotSquadFollowPushChance * Mathf.Lerp(0.6f, 1.4f, resolve);
+        }
+        if (Random.value >= Mathf.Clamp01(chance))
+        {
+            return false;
+        }
+        _followKind = kind;
+        _followWhy = why;
+        _followDue = now + Random.Range(fork.ShotSquadFollowDelayMin, Mathf.Max(fork.ShotSquadFollowDelayMin, fork.ShotSquadFollowDelayMax));
+        LogEvent($"squadmate {(kind == ESquadFollow.Leave ? "leaves" : "pushes")} ({why}): follows in {_followDue - now:0.0} s (chance {chance:0.00}, resolve {resolve:0.00})");
+        return true;
+    }
+
+    private void TickSquadFollow(float now)
+    {
+        if (_followKind == ESquadFollow.None || now < _followDue)
+        {
+            return;
+        }
+        ForkSettings fork = GlobalSettings.Fork;
+        Enemy enemy = Bot.GoalEnemy;
+        if (enemy == null || enemy.IsAI || !Enemy.IsEnemyActive(enemy) || Relocating || OnStationary() || !IsEngaged(now))
+        {
+            _followKind = ESquadFollow.None;
+            return;
+        }
+        // Never mid-burst: wait for a pause in its fire, at most ShotDuelWaitPause seconds.
+        ShootData fireData = Bot.BotOwner.ShootData;
+        if (fireData != null && now - fireData.LastTriggerPressd < fork.ShotDuelBurstGap && now - _followDue < fork.ShotDuelWaitPause)
+        {
+            return;
+        }
+        ESquadFollow kind = _followKind;
+        _followKind = ESquadFollow.None;
+        float distance = enemy.RealDistance;
+        bool close = IsCloseRange(distance);
+        if (kind == ESquadFollow.Leave)
+        {
+            BreakOff(enemy, now, close, close ? fork.ShotHurtCloseDistanceMult : fork.ShotDuelDistanceMult, $"to follow a squadmate ({_followWhy})", false, WaitNote(now, _followDue), false);
+            return;
+        }
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        if (close || distance > reach)
+        {
+            return;
+        }
+        LogEvent($"squadmate pushed: joins the push, {distance:0} m from the player");
+        _duelSeen = 0f;
+        _duelBursts.Clear();
+        _duelCooldownUntil = now + 20f;
+        StartPush(enemy, now, true);
     }
 
     private bool _squadClosePending;
@@ -4213,7 +4364,7 @@ public class ShotReactionClass : BotComponentClassBase
     private float _pushStart;
     private bool _pushSquadLossChecked;
 
-    private void StartPush(Enemy enemy, float now)
+    private void StartPush(Enemy enemy, float now, bool follow = false)
     {
         _pushStart = now;
         _pushSquadLossChecked = false;
@@ -4224,6 +4375,10 @@ public class ShotReactionClass : BotComponentClassBase
         _hopBestDistance = float.MaxValue;
         _hopProgressTime = now;
         _hopHold = HopHoldTime();
+        if (!follow)
+        {
+            OfferSquadFollow(now, ESquadFollow.Push, "duel push", false);
+        }
     }
 
     private void EndPush(string why)
@@ -4707,6 +4862,7 @@ public class ShotReactionClass : BotComponentClassBase
             _duelSeen = 0f;
             _duelHits.Clear();
             _duelForceLeave = false;
+            OfferSquadFollow(now, ESquadFollow.Leave, "duel", false);
             _duelRepeats++;
             _lastDuelRetreat = now;
             _longRetreat = true;
@@ -4736,6 +4892,7 @@ public class ShotReactionClass : BotComponentClassBase
         ProcessPendingRogueAlert(now);
         ProcessReports(now);
         TrackDuelBursts(now);
+        TickSquadFollow(now);
         TryDuelRetreat(now);
         TryPressureRetreat(now);
         TickAreaSuppression(now);

@@ -2413,6 +2413,41 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("On = a bot that knows where you are (duel leave, hurt and squad-death break-offs) beyond close range also ONLY retreats to a point out of your sight, and stays and fights if there is none. Off (default) = beyond close range a point out of your sight is preferred but a retreat in your sight is allowed, since at mid and long range that is viable. At close range Hurt: Close Range Retreat Needs Hiding applies either way. Related: Known Position Window, Hurt: Avoid Distance, Duel Leave settings.")]
     public bool ShotKnownRetreatNeedsHidden = false;
 
+    [DataMember]
+    [Category("Duel/Squad follow")]
+    [Name("Squad Follow: Leave Chance")]
+    [Description("When a bot of an ordinary squad or a Rogue squad starts a duel leave, a hurt break-off or a squad-death break-off, each squadmate in the same fight (within the Squad Role Range and engaged) rolls this chance to leave too, scaled by its own resolve (low resolve follows more), halved if the leaver was only hurt and 1.4x after a squad death. It uses its own retreat plan after a short delay, and never pulls anyone else along. Related: Squad Follow Max Share, Squad Follow Delay, Squad Role Range, Duel Leave settings.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotSquadFollowLeaveChance = 0.35f;
+
+    [DataMember]
+    [Category("Duel/Squad follow")]
+    [Name("Squad Follow: Push Chance")]
+    [Description("When a bot starts a duel push, each squadmate that could push itself (inside its reach, not at close range, low pull) rolls this chance to join the push, scaled by its resolve (high resolve joins more). The mates that do not join keep shooting. Related: Duel Push settings, Squad Follow Leave Chance.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotSquadFollowPushChance = 0.2f;
+
+    [DataMember]
+    [Category("Duel/Squad follow")]
+    [Name("Squad Follow: Max Share Leaving")]
+    [Description("A squad leave pulls at most this share of the squad (0.5 = half, rounded), and always leaves at least one bot in the fight. After a squad death this cap does not apply. Related: Squad Follow Leave Chance.")]
+    [MinMax(0.1f, 1f, 100f)]
+    public float ShotSquadFollowMaxShare = 0.5f;
+
+    [DataMember]
+    [Category("Duel/Squad follow")]
+    [Name("Squad Follow: Delay Min (s)")]
+    [Description("A follower starts its retreat or push this many seconds at the earliest after its squadmate (random between Min and Max), so a squad does not move in the same second. It still waits for a pause in its fire. Related: Duel Waits For A Pause In Fire.")]
+    [MinMax(0f, 10f, 10f)]
+    public float ShotSquadFollowDelayMin = 1f;
+
+    [DataMember]
+    [Category("Duel/Squad follow")]
+    [Name("Squad Follow: Delay Max (s)")]
+    [Description("The latest start of a follower after its squadmate.")]
+    [MinMax(0f, 15f, 10f)]
+    public float ShotSquadFollowDelayMax = 4f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);
