@@ -3944,11 +3944,20 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         _hurtPending = false;
+        BreakOff(enemy, now, close, close ? fork.ShotHurtCloseDistanceMult : fork.ShotHurtDistanceMult, "to heal", true);
+    }
+
+    /// <summary>
+    /// A break-off retreat out of the player's sight (hurt, or after a squadmate was killed). At close range it goes a short way and the path must not pass within ShotHurtAvoidDistance
+    /// of the player; with no such way out (trapped) the bot stays and fights. Holds at least ShotHurtMinHold seconds when hurt, else the long retreat hold.
+    /// </summary>
+    private bool BreakOff(Enemy enemy, float now, bool close, float mult, string why, bool hurt)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
         _enemy = enemy;
         _forcedRetreat = true;
         _avoidPos = enemy.EnemyPosition;
         _avoidDistance = close ? Mathf.Max(fork.ShotHurtAvoidDistance, 0f) : 0f;
-        float mult = close ? fork.ShotHurtCloseDistanceMult : fork.ShotHurtDistanceMult;
         bool started = TryStartRelocating(ScaledRelocateDistance(mult));
         _avoidDistance = 0f;
         if (started)
@@ -3957,13 +3966,67 @@ public class ShotReactionClass : BotComponentClassBase
             _duelSeen = 0f;
             _duelBursts.Clear();
             _longRetreat = true;
-            _hurtLeave = true;
-            LogEvent($"badly hurt: retreats to heal, distance x{mult:0.0}{(close ? " (close range, a way out that does not pass the player)" : "")}");
-            return;
+            _hurtLeave = hurt;
+            LogEvent($"breaks off {why}: retreats, distance x{mult:0.0}{(close ? " (close range, a way out that does not pass the player)" : "")}");
+            return true;
         }
         _forcedRetreat = false;
         _hurtCooldownUntil = now + 20f;
-        LogEvent($"badly hurt: no way out{(close ? " that does not pass the player" : "")}, stays and fights");
+        LogEvent($"breaks off {why}: no way out{(close ? " that does not pass the player" : "")}, stays and fights");
+        return false;
+    }
+
+    private bool _squadClosePending;
+    private float _squadClosePendingSince;
+    private bool _squadLossCloseHandled;
+
+    /// <summary>
+    /// A squadmate was killed by the player and the fight is at close range (where the duel does not run): the survivor may break off, with a lower chance (ShotSquadLossCloseFactor), only in a
+    /// pause in its fire, only with a way out that does not pass the player. Not for a bot without squadmates (nobody was lost). Farther away the duel handles squad losses.
+    /// </summary>
+    private void TrySquadLossCloseRetreat(Enemy enemy, float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (fork.ShotSquadLossCloseFactor <= 0f || fork.ShotDuelSquadLossPenalty <= 0f || Relocating || OnStationary() || now < _hurtCooldownUntil)
+        {
+            return;
+        }
+        if (now - _squadLossTime >= fork.ShotDuelSquadLossTime)
+        {
+            _squadClosePending = false;
+            return;
+        }
+        float distance = enemy.RealDistance;
+        if (!IsCloseRange(distance))
+        {
+            _squadClosePending = false;
+            return;
+        }
+        if (!_squadClosePending)
+        {
+            if (_squadLossCloseHandled || (!enemy.IsVisible && _duelHits.Count == 0))
+            {
+                return;
+            }
+            _squadLossCloseHandled = true;
+            float resolve = DuelResolve(enemy);
+            float chance = Mathf.Clamp01(Mathf.Lerp(0.85f, 0.4f, resolve) * fork.ShotSquadLossCloseFactor);
+            if (Random.value >= chance)
+            {
+                LogEvent($"a squadmate was killed, close range ({distance:0} m): keeps fighting (chance {chance:0.00}, resolve {resolve:0.00})");
+                return;
+            }
+            _squadClosePending = true;
+            _squadClosePendingSince = now;
+            LogEvent($"a squadmate was killed, close range ({distance:0} m): breaks off (chance {chance:0.00}, resolve {resolve:0.00})");
+        }
+        ShootData fireData = Bot.BotOwner.ShootData;
+        if (fireData != null && now - fireData.LastTriggerPressd < fork.ShotDuelBurstGap && now - _squadClosePendingSince < fork.ShotDuelWaitPause)
+        {
+            return;
+        }
+        _squadClosePending = false;
+        BreakOff(enemy, now, true, fork.ShotHurtCloseDistanceMult, "after a squadmate was killed", false);
     }
     private float _duelDueSince = -1f;
 
@@ -4036,6 +4099,8 @@ public class ShotReactionClass : BotComponentClassBase
         }
         _squadLossTime = now;
         _squadLossHandled = false;
+        _squadLossCloseHandled = false;
+        _squadClosePending = false;
     }
 
     private void DuelLog(float now, string note, Enemy enemy, float resolve, float pull)
@@ -4452,6 +4517,7 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         TryHurtRetreat(enemy, now);
+        TrySquadLossCloseRetreat(enemy, now);
         // At close range it is a fight, not a duel: the clock does not run (it would otherwise retreat the moment the range opens).
         if (IsCloseRange(enemy.RealDistance))
         {

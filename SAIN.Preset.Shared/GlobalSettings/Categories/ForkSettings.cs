@@ -2387,6 +2387,13 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(0f, 15f, 10f)]
     public float ShotHurtAvoidDistance = 4f;
 
+    [DataMember]
+    [Category("Duel/Squad loss")]
+    [Name("Squad Loss: Close Range Factor")]
+    [Description("At close range (where the duel does not run) a survivor of a squad kill may still break off: the chance is the squad loss chance (0.4 to 0.85 by resolve) times this. 1 = same as farther away, 0 = never at close range. It only starts in a pause in its fire and needs a way out that does not pass you (Hurt: Avoid Distance), else it stays and fights. Bots without squadmates are not affected. Related: Squad Loss Resolve Penalty, Hurt: Close Range Distance Multiplier, Hurt: Avoid Distance, Duel Waits For A Pause In Fire.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotSquadLossCloseFactor = 0.7f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);
