@@ -2220,6 +2220,110 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(1f, 10f, 10f)]
     public float DoorInteractionMaxTime = 3f;
 
+    [DataMember]
+    [Category("Duel/Misses and hits (the pull)")]
+    [Name("Duel Weight: Marksman Rifle")]
+    [Description("A missed burst counts this many times for a bot with a marksman rifle (SVD, SVDS, DMRs), by rifle class and not by fire mode. Fades in with the distance as a share of the bot's reach (1x up close, see Long Range Start/Full). Related: multiplies the Pull Per Missed Burst and Pull Per Hit On The Bot above; the total pull is still capped at 0.8.")]
+    [MinMax(1f, 6f, 10f)]
+    public float ShotDuelWeightMarksman = 2f;
+
+    [DataMember]
+    [Category("Duel/Misses and hits (the pull)")]
+    [Name("Duel Weight: Sniper Rifle")]
+    [Description("A missed burst counts this many times for a bot with a sniper rifle (bolt actions like the M700). Fades in with the distance as a share of reach. Related: same as the marksman weight; a hit on a sniper also rolls the sniper rule (Long Rifles).")]
+    [MinMax(1f, 6f, 10f)]
+    public float ShotDuelWeightSniper = 3f;
+
+    [DataMember]
+    [Category("Duel/Long rifles")]
+    [Name("Spotted Marksman/Sniper: Chance Per Hit")]
+    [Description("A bot with a marksman or sniper rifle that is hit while dueling you rolls this chance (0 to 1) to give the position up at once (a full leave). Scaled by the long range fade, by its resolve (personality, equipment, health, squad: timid leaves more, stubborn less) and raised a little by every earlier hit or close bullet in the same duel, so it often takes two or three. Related: Close Bullet chance, Long Range Start/Full, Duel Leave settings, Duel Flavor.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotDuelSniperHitChance = 0.35f;
+
+    [DataMember]
+    [Category("Duel/Long rifles")]
+    [Name("Spotted Marksman/Sniper: Chance Per Close Bullet")]
+    [Description("The same roll for a bullet passing within the Near-Hit Distance (Shot Again > Self preservation), without a hit. Related: Chance Per Hit, Near-Hit Distance, Long Range Start/Full.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotDuelSniperCloseChance = 0.15f;
+
+    [DataMember]
+    [Category("Duel/Long range")]
+    [Name("Long Range Start (share of reach)")]
+    [Description("The duel's long range rules start at this share of the bot's weapon reach (0.4 = 40%): below it the duel acts as before. Related: Long Range Full, Long Range End, Weapon weights, the sniper rule and the squad loss rule all fade in from here.")]
+    [MinMax(0.1f, 2f, 100f)]
+    public float ShotDuelLongStart = 0.4f;
+
+    [DataMember]
+    [Category("Duel/Long range")]
+    [Name("Long Range Full (share of reach)")]
+    [Description("At this share of reach the weapon weights and the sniper rule count fully. Related: Long Range Start.")]
+    [MinMax(0.2f, 3f, 100f)]
+    public float ShotDuelLongFull = 1f;
+
+    [DataMember]
+    [Category("Duel/Long range")]
+    [Name("Long Range End (share of reach)")]
+    [Description("At this share of reach the duel time has shrunk to Long Range Min Time Factor. Related: Duel Time Min/Max, Time Floor.")]
+    [MinMax(0.3f, 4f, 100f)]
+    public float ShotDuelLongEnd = 1.5f;
+
+    [DataMember]
+    [Category("Duel/Long range")]
+    [Name("Long Range Min Time Factor")]
+    [Description("The duel time at Long Range End is this share of the normal time (0.5 = half). Never below the Time Floor.")]
+    [MinMax(0.1f, 1f, 100f)]
+    public float ShotDuelLongMinFactor = 0.5f;
+
+    [DataMember]
+    [Category("Duel/Long range")]
+    [Name("Short Range Time Factor")]
+    [Description("Up to the Long Range Start the duel time is stretched: at point blank it is this many times longer, falling to 1x at the Long Range Start, and the Time Floor stretches with it. So mid and short fights almost never end with a bot turning to leave mid-fight. Related: Duel Time Min/Max, Time Floor, Long Range Start.")]
+    [MinMax(1f, 10f, 10f)]
+    public float ShotDuelShortTimeFactor = 3f;
+
+    [DataMember]
+    [Category("Duel/Clock")]
+    [Name("Duel Waits For A Pause In Fire (s)")]
+    [Description("A bot that has decided to leave or push never starts while it is firing a burst: it waits for a pause in its fire (longer than the Burst Gap), at most this many seconds. Related: Burst Gap (Misses and hits), Duel Cooldown.")]
+    [MinMax(0f, 20f, 10f)]
+    public float ShotDuelWaitPause = 6f;
+
+    [DataMember]
+    [Category("Duel/Squad loss")]
+    [Name("Squad Loss: Resolve Penalty")]
+    [Description("When a squadmate is killed by you, the survivors lose this much resolve (timid ones 30% more, aggressive ones 30% less) for the Squad Loss Time, and usually decide at once: leave, or push if their resolve and numbers allow it. Not when the fight is close. 0 = off. Related: Duel Push Resolve, Squad Role Range (who counts as a squadmate), Squad Loss Min Distance.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotDuelSquadLossPenalty = 0.3f;
+
+    [DataMember]
+    [Category("Duel/Squad loss")]
+    [Name("Squad Loss: Time (s)")]
+    [Description("How long the resolve penalty after a squad kill lasts.")]
+    [MinMax(5f, 300f, 1f)]
+    public float ShotDuelSquadLossTime = 60f;
+
+    [DataMember]
+    [Category("Duel/Squad loss")]
+    [Name("Squad Loss: Min Distance (share of reach)")]
+    [Description("The squad loss rule only applies when you are at least this share of the survivor's reach away; closer than that it stays a normal close fight. Related: Long Range Start.")]
+    [MinMax(0f, 2f, 100f)]
+    public float ShotDuelSquadLossMinShare = 0.4f;
+
+    [DataMember]
+    [Category("Duel/Clock")]
+    [Name("Duel Flavor (randomness)")]
+    [Description("Each engagement the bot's resolve gets a random offset of up to plus or minus this value, and the push or leave outcome flips with a chance of 0.6 times this value (0.08 = about 5%), so duels are never fully predictable. 0 = no randomness. Related: Duel Push Resolve, the sniper rule, the squad loss rule.")]
+    [MinMax(0f, 0.3f, 100f)]
+    public float ShotDuelFlavor = 0.08f;
+
+    [DataMember]
+    [Category("Duel/Clock")]
+    [Name("Duel Log")]
+    [Description("Writes one log line when a duel clock starts and every 15 s while it runs (time seen firing, limit, resolve, pull, weapon, distance, why it is not leaving yet). For tuning. Related: Shot Reaction Log.")]
+    public bool ShotDuelLog = true;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

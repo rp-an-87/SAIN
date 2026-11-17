@@ -651,7 +651,7 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     public void OnHit(Enemy enemy)
     {
-        NoteDuelHit(enemy);
+        NoteDuelHit(enemy, true);
         if (!AppliesTo(enemy))
         {
             LogSkipped(enemy, true);
@@ -759,7 +759,7 @@ public class ShotReactionClass : BotComponentClassBase
         if (!hit)
         {
             // A close bullet counts toward a duel retreat even when the bot sees the shooter (a hit is counted in OnHit).
-            NoteDuelHit(enemy);
+            NoteDuelHit(enemy, false);
         }
         if (!AppliesTo(enemy))
         {
@@ -1265,6 +1265,29 @@ public class ShotReactionClass : BotComponentClassBase
     /// A bot was killed (an instant kill never reaches the hit reaction): a Rogue's death goes through the witness rules (see RogueKillAlert), any other bot alerts its squadmates as for a hit,
     /// both with a vague area around the killer.
     /// </summary>
+    /// <summary>The squadmates of a bot that was killed by the player (within the squad role range) have lost one of their own: see NoteSquadLoss.</summary>
+    private void NoteSquadLossForMates(IPlayer killer)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (killer == null || Bot.Squad?.Members == null || (fork.ShotReactionPlayerOnly && (killer as Player)?.IsYourPlayer != true))
+        {
+            return;
+        }
+        float rangeSqr = fork.ShotSquadRoleRange * fork.ShotSquadRoleRange;
+        float now = Time.time;
+        foreach (var member in Bot.Squad.Members.Values)
+        {
+            if (member == null || member == Bot || member.BotOwner == null || member.BotOwner.IsDead || member.ShotReaction == null)
+            {
+                continue;
+            }
+            if ((member.Position - Bot.Position).sqrMagnitude <= rangeSqr)
+            {
+                member.ShotReaction.NoteSquadLoss(now);
+            }
+        }
+    }
+
     private void OnOwnDeath(Player player, IPlayer lastAggressor, DamageInfo lastDamageInfo, EBodyPart lastBodyPart)
     {
         try
@@ -1277,6 +1300,7 @@ public class ShotReactionClass : BotComponentClassBase
             // A call-in the Rogue did not live to make.
             _callInPending = false;
             ForkSettings fork = GlobalSettings.Fork;
+            NoteSquadLossForMates(lastAggressor);
             bool rogue = Bot.Info.Profile.WildSpawnType == WildSpawnType.exUsec;
             bool wanted = rogue ? fork.ShotRogueAlertEnabled : (fork.ShotSquadAlertEnabled && Enabled);
             if (lastAggressor == null || !wanted)
@@ -3770,6 +3794,84 @@ public class ShotReactionClass : BotComponentClassBase
     private float _duelBase = 30f;
     private float _duelLastTrigger = -999f;
     private readonly List<float> _duelBursts = [];
+    private bool _duelForceLeave;
+    private float _duelDueSince = -1f;
+    private float _duelExposure;
+    private float _duelFlavor;
+    private float _squadLossTime = -999f;
+    private bool _squadLossHandled;
+    private float _nextDuelLog;
+
+    private bool IsLongRifle()
+    {
+        EWeaponClass weaponClass = Bot.Info.WeaponInfo.EWeaponClass;
+        return weaponClass == EWeaponClass.marksmanRifle || weaponClass == EWeaponClass.sniperRifle;
+    }
+
+    /// <summary>How much a missed burst counts for this bot's weapon class: a sniper rifle or marksman rifle (SVD, DMR) shoots deliberate shots, a miss says more. Other classes count 1.</summary>
+    private float DuelWeaponWeight()
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        switch (Bot.Info.WeaponInfo.EWeaponClass)
+        {
+            case EWeaponClass.sniperRifle:
+                return Mathf.Max(fork.ShotDuelWeightSniper, 1f);
+            case EWeaponClass.marksmanRifle:
+                return Mathf.Max(fork.ShotDuelWeightMarksman, 1f);
+            default:
+                return 1f;
+        }
+    }
+
+    /// <summary>0 at ShotDuelLongStart (share of the weapon's reach) up to 1 at ShotDuelLongFull: how much the long range rules (weapon weights, sniper exposure) count. Near zero up close: short fights stay as they were.</summary>
+    private float LongFade(float distance)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        return Mathf.Clamp01(Mathf.InverseLerp(fork.ShotDuelLongStart, Mathf.Max(fork.ShotDuelLongFull, fork.ShotDuelLongStart + 0.05f), distance / reach));
+    }
+
+    /// <summary>
+    /// Scale of the duel time by distance (share of the weapon's reach): up to ShotDuelLongStart it stretches from ShotDuelShortTimeFactor (point blank) down to 1, so short and mid fights
+    /// almost never end in a leave; beyond it shrinks to ShotDuelLongMinFactor at ShotDuelLongEnd.
+    /// </summary>
+    private float LongTimeFactor(float distance)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        float ratio = distance / reach;
+        float start = Mathf.Max(fork.ShotDuelLongStart, 0.05f);
+        if (ratio < start)
+        {
+            return Mathf.Lerp(Mathf.Max(fork.ShotDuelShortTimeFactor, 1f), 1f, ratio / start);
+        }
+        float t = Mathf.Clamp01(Mathf.InverseLerp(start, Mathf.Max(fork.ShotDuelLongEnd, start + 0.05f), ratio));
+        return Mathf.Lerp(1f, Mathf.Clamp(fork.ShotDuelLongMinFactor, 0.1f, 1f), t);
+    }
+
+    /// <summary>A squadmate of this bot was killed (by the player): its resolve drops for a while (see DuelResolve) and it may decide at once (see TryDuelRetreat).</summary>
+    public void NoteSquadLoss(float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (!Enabled || !fork.ShotDuelRetreatEnabled || fork.ShotDuelSquadLossPenalty <= 0f)
+        {
+            return;
+        }
+        _squadLossTime = now;
+        _squadLossHandled = false;
+    }
+
+    private void DuelLog(float now, string note, Enemy enemy, float resolve, float pull)
+    {
+        if (!GlobalSettings.Fork.ShotDuelLog || now < _nextDuelLog)
+        {
+            return;
+        }
+        _nextDuelLog = now + 15f;
+        float distance = enemy != null ? enemy.RealDistance : 0f;
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        LogEvent($"duel clock: seen firing {_duelSeen:0} s of {_duelTarget:0} s, {note}, resolve {resolve:0.00}, pull {pull:0.00} ({_duelBursts.Count} missed bursts, {_duelHits.Count} hits or close bullets), weapon {Bot.Info.WeaponInfo.EWeaponClass} x{DuelWeaponWeight():0.#}, player at {distance:0} m ({distance / reach * 100f:0}% of reach)");
+    }
 
     /// <summary>
     /// Counts the bot's bursts at the player while a duel clock runs: a burst is a run of trigger pulls with gaps under ShotDuelBurstGap, however long it is, and counts once.
@@ -3858,7 +3960,7 @@ public class ShotReactionClass : BotComponentClassBase
             EndPush($"close enough ({distance:0} m, reach {reach:0} m)");
             return false;
         }
-        float pull = DuelPull(now);
+        float pull = DuelPull(now, distance);
         if (pull >= fork.ShotDuelPushAbortPull)
         {
             EndPush($"it is losing (pull {pull:0.00}), retreats instead");
@@ -3933,11 +4035,13 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>The pull to leave (0..0.8): bursts that missed in the miss window and hits or close bullets of the player on this bot.</summary>
-    private float DuelPull(float now)
+    private float DuelPull(float now, float distance)
     {
         ForkSettings fork = GlobalSettings.Fork;
         _duelBursts.RemoveAll(time => now - time > fork.ShotDuelMissWindow);
-        return Mathf.Clamp((_duelBursts.Count * fork.ShotDuelMissWeight) + (_duelHits.Count * fork.ShotDuelHitWeight), 0f, 0.8f);
+        // A sniper or marksman rifle counts more per miss, fading in with the distance as a share of its reach (1x up close).
+        float weight = Mathf.Lerp(1f, DuelWeaponWeight(), LongFade(distance));
+        return Mathf.Clamp(((_duelBursts.Count * fork.ShotDuelMissWeight) + (_duelHits.Count * fork.ShotDuelHitWeight)) * weight, 0f, 0.8f);
     }
 
     /// <summary>
@@ -3981,6 +4085,37 @@ public class ShotReactionClass : BotComponentClassBase
             }
         }
         resolve += mates > 0 ? 0.1f : -0.1f;
+        // The shooter's equipment: a suppressed or prone player is harder to place, so the bot is less sure it can win.
+        if (enemy.EnemyPlayerComponent?.Equipment?.CurrentWeaponInfo?.HasSuppressor == true)
+        {
+            resolve -= 0.05f;
+        }
+        if (enemy.EnemyPlayer != null && enemy.EnemyPlayer.IsInPronePose)
+        {
+            resolve -= 0.05f;
+        }
+        // A kill in the squad shakes the survivors (not when the fight is close), timid ones more, aggressive ones less.
+        ForkSettings fork = GlobalSettings.Fork;
+        if (Time.time - _squadLossTime < fork.ShotDuelSquadLossTime && ratio >= fork.ShotDuelSquadLossMinShare)
+        {
+            float penalty = fork.ShotDuelSquadLossPenalty;
+            switch (Bot.Info.Personality)
+            {
+                case EPersonality.Wreckless:
+                case EPersonality.GigaChad:
+                case EPersonality.Chad:
+                    penalty *= 0.7f;
+                    break;
+                case EPersonality.Rat:
+                case EPersonality.Timmy:
+                case EPersonality.Coward:
+                    penalty *= 1.3f;
+                    break;
+            }
+            resolve -= penalty;
+        }
+        // A small per-engagement random offset: the same bot in the same spot does not always decide the same.
+        resolve += _duelFlavor;
         return Mathf.Clamp01(resolve);
     }
 
@@ -4061,7 +4196,7 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>The player hit this bot, or a bullet of the player passed close to it (seen or not): counts toward a duel retreat.</summary>
-    private void NoteDuelHit(Enemy enemy)
+    private void NoteDuelHit(Enemy enemy, bool hit)
     {
         ForkSettings fork = GlobalSettings.Fork;
         if (enemy == null || !fork.ShotDuelRetreatEnabled || !Enabled || (fork.ShotReactionPlayerOnly && enemy.EnemyPlayer?.IsYourPlayer != true))
@@ -4069,6 +4204,24 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         _duelHits.Enqueue(Time.time);
+        // A sniper or marksman that is spotted and shot at wants to leave (a sniper position is only worth something unseen), but not every time: each hit or close bullet
+        // is a roll, weighted by the bot's resolve (personality, equipment, health, squad) and the distance, and earlier exposures add to the next roll.
+        if (_duelSeen > 0f && !_duelForceLeave && IsLongRifle())
+        {
+            float distance = enemy.RealDistance;
+            float fade = LongFade(distance);
+            if (fade > 0f)
+            {
+                float resolve = DuelResolve(enemy);
+                float chance = ((hit ? fork.ShotDuelSniperHitChance : fork.ShotDuelSniperCloseChance) * fade * Mathf.Lerp(1.6f, 0.6f, resolve)) + (_duelExposure * 0.08f);
+                _duelExposure += hit ? 1f : 0.5f;
+                if (Random.value < chance)
+                {
+                    _duelForceLeave = true;
+                    LogEvent($"duel: spotted and {(hit ? "hit" : "shot at")} at {distance:0} m with a {Bot.Info.WeaponInfo.EWeaponClass}, it gives the position up (chance {chance:0.00}, resolve {resolve:0.00})");
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -4117,6 +4270,14 @@ public class ShotReactionClass : BotComponentClassBase
                 _duelBase = Random.Range(fork.ShotDuelTimeMin, Mathf.Max(fork.ShotDuelTimeMin, fork.ShotDuelTimeMax));
                 _duelBursts.Clear();
                 _duelLastTrigger = shootData.LastTriggerPressd;
+                _duelFlavor = Random.Range(-fork.ShotDuelFlavor, fork.ShotDuelFlavor);
+                _duelExposure = 0f;
+                _duelForceLeave = false;
+                _duelDueSince = -1f;
+                if (fork.ShotDuelLog)
+                {
+                    LogEvent($"duel clock starts: weapon {Bot.Info.WeaponInfo.EWeaponClass}, player at {enemy.RealDistance:0} m, base time {_duelBase:0} s");
+                }
             }
             _duelSeen = Mathf.Min(_duelSeen + dt, 600f);
             _duelLastSeen = now;
@@ -4125,28 +4286,65 @@ public class ShotReactionClass : BotComponentClassBase
         {
             _duelSeen = 0f;
         }
-        if (Relocating || now < _duelCooldownUntil || _duelSeen <= 0f)
-        {
-            return;
-        }
-        // The limit: the random base time, longer for a stubborn bot, cut by the pull of missed bursts and hits on it, never under the floor.
-        float resolve = DuelResolve(enemy);
-        float pull = DuelPull(now);
-        _duelTarget = Mathf.Max(fork.ShotDuelTimeFloor, _duelBase * Mathf.Lerp(0.6f, 1.4f, resolve) * (1f - pull));
-        if (_duelSeen < _duelTarget || _duelHits.Count < Mathf.RoundToInt(fork.ShotDuelShots))
+        if (_duelSeen <= 0f)
         {
             return;
         }
         float distance = enemy.RealDistance;
+        float reachNow = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        float resolve = DuelResolve(enemy);
+        float pull = DuelPull(now, distance);
+        if (Relocating || now < _duelCooldownUntil)
+        {
+            DuelLog(now, Relocating ? "blocked: already relocating" : $"blocked: cooldown, {_duelCooldownUntil - now:0} s left", enemy, resolve, pull);
+            return;
+        }
+        // The limit: the random base time, longer for a stubborn bot, cut by the pull of missed bursts and hits on it and shorter at long range, never under the floor.
+        float timeScale = LongTimeFactor(distance);
+        _duelTarget = Mathf.Max(fork.ShotDuelTimeFloor * Mathf.Max(timeScale, 1f), _duelBase * Mathf.Lerp(0.6f, 1.4f, resolve) * (1f - pull) * timeScale);
+        // A kill in the squad makes a survivor decide (once per loss, and not when the fight is close): usually, not always.
+        if (!_squadLossHandled && now - _squadLossTime < fork.ShotDuelSquadLossTime && distance / reachNow >= fork.ShotDuelSquadLossMinShare)
+        {
+            _squadLossHandled = true;
+            float decideChance = Mathf.Lerp(0.85f, 0.4f, resolve);
+            if (Random.value < decideChance)
+            {
+                _duelSeen = Mathf.Max(_duelSeen, _duelTarget);
+                LogEvent($"duel: a squadmate was killed, it decides now (chance {decideChance:0.00}, resolve {resolve:0.00})");
+            }
+        }
+        bool forced = _duelForceLeave;
+        if (!forced && (_duelSeen < _duelTarget || _duelHits.Count < Mathf.RoundToInt(fork.ShotDuelShots)))
+        {
+            DuelLog(now, "keeps fighting", enemy, resolve, pull);
+            return;
+        }
         if (IsCloseRange(distance) || OnStationary())
         {
             return;
         }
-        float reachNow = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
-        if (resolve >= fork.ShotDuelPushResolve && pull < 0.3f && distance <= reachNow)
+        // Never mid-burst: a leave or push only starts in a pause of its fire (a gap longer than the burst gap), waiting at most ShotDuelWaitPause seconds for one.
+        if (_duelDueSince < 0f)
+        {
+            _duelDueSince = now;
+        }
+        ShootData fireData = Bot.BotOwner.ShootData;
+        if (fireData != null && now - fireData.LastTriggerPressd < fork.ShotDuelBurstGap && now - _duelDueSince < fork.ShotDuelWaitPause)
+        {
+            DuelLog(now, "decided, waits for a pause in its fire", enemy, resolve, pull);
+            return;
+        }
+        // Push or leave: a chance that grows with the resolve and falls with the pull, then a small flavor flip, so it is never fully predictable.
+        float pushChance = Mathf.Clamp01(Mathf.InverseLerp(fork.ShotDuelPushResolve - 0.15f, fork.ShotDuelPushResolve + 0.15f, resolve)) * (1f - Mathf.Clamp01(pull / 0.3f));
+        bool push = !forced && distance <= reachNow && Random.value < pushChance;
+        if (!forced && Random.value < fork.ShotDuelFlavor * 0.6f)
+        {
+            push = !push && distance <= reachNow;
+        }
+        if (push)
         {
             // Winning, or at least not losing: the objective is to push. It goes cover to cover toward the player (see TryPushDecision) instead of retreating.
-            LogEvent($"duel push: resolve {resolve:0.00}, pull {pull:0.00}, {_duelBursts.Count} missed bursts, player at {distance:0} m, goes cover to cover toward it for up to {fork.ShotDuelPushTime:0} s");
+            LogEvent($"duel push: resolve {resolve:0.00}, pull {pull:0.00}, {_duelBursts.Count} missed bursts, push chance {pushChance:0.00}, player at {distance:0} m, goes cover to cover toward it for up to {fork.ShotDuelPushTime:0} s");
             _duelSeen = 0f;
             _duelBursts.Clear();
             _duelCooldownUntil = now + 20f;
@@ -4170,10 +4368,11 @@ public class ShotReactionClass : BotComponentClassBase
             _duelCooldownUntil = now + fork.ShotDuelCooldown;
             _duelSeen = 0f;
             _duelHits.Clear();
+            _duelForceLeave = false;
             _duelRepeats++;
             _lastDuelRetreat = now;
             _longRetreat = true;
-            LogEvent($"duel retreat: has been firing at the player for {seen:0} s without hitting it (limit {_duelTarget:0} s), {hits} hits or close bullets on it in {fork.ShotDuelWindow:0} s, player at {distance:0} m, resolve {resolve:0.00}, pull {pull:0.00} ({missed} missed bursts), retreat distance x{mult:0.0} (repeat {_duelRepeats})");
+            LogEvent($"duel retreat{(forced ? " (spotted, sniper rule)" : "")}: has been firing at the player for {seen:0} s without hitting it (limit {_duelTarget:0} s), {hits} hits or close bullets on it in {fork.ShotDuelWindow:0} s, player at {distance:0} m, resolve {resolve:0.00}, pull {pull:0.00} ({missed} missed bursts), retreat distance x{mult:0.0} (repeat {_duelRepeats})");
             return;
         }
         _forcedRetreat = false;
