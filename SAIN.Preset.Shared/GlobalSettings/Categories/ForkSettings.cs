@@ -2217,7 +2217,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Duel Push Resolve")]
     [Description("A bot whose resolve (personality, reach against the distance, squad nearby, health) is at least this and that is not being pulled away does not retreat when the clock ends: it pushes, cover to cover toward the player (the investigate rules). 1 = never.")]
     [MinMax(0f, 1f, 100f)]
-    public float ShotDuelPushResolve = 0.75f;
+    public float ShotDuelPushResolve = 0.65f;
 
     [DataMember]
     [Category("Shot Reaction/Duel")]
@@ -2239,6 +2239,13 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("A bot that pushes and takes this much pull (missed bursts, hits on it) is losing: the push ends and it retreats instead.")]
     [MinMax(0.1f, 0.8f, 100f)]
     public float ShotDuelPushAbortPull = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction/Cover")]
+    [Name("Hide Leave Delay After Arriving (s)")]
+    [Description("After a bot that was shot at has reached cover, it can leave the hide this many seconds later, whatever the hide time (Cover Time Min/Max) says. Raise it for bots that stay in cover longer. Was a fixed 1.5 s.")]
+    [MinMax(0.5f, 30f, 10f)]
+    public float ShotHideLeaveDelay = 4f;
 
     public override void Init(List<ISAINSettings> list)
     {

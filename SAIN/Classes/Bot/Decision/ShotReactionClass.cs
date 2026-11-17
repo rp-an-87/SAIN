@@ -58,7 +58,7 @@ public class ShotReactionClass : BotComponentClassBase
     private const float VAGUE_POSITION_MAX_AGE = 20f;
 
     /// <summary>After this long in cover (instead of the full hide time) the bot leaves for its relocation point.</summary>
-    private const float RELOCATE_COVER_HOLD = 1.5f;
+    private static float RELOCATE_COVER_HOLD => GlobalSettings.Fork.ShotHideLeaveDelay;
 
     /// <summary>The shooter only counts as seen once it has been continuously visible this long (a flicker of the vision flag must not cancel the reaction).</summary>
     private const float VISIBLE_GRACE = 1f;
@@ -4099,6 +4099,13 @@ public class ShotReactionClass : BotComponentClassBase
             {
                 _duelSeen = 0f;
             }
+            return;
+        }
+        // At close range it is a fight, not a duel: the clock does not run (it would otherwise retreat the moment the range opens).
+        if (IsCloseRange(enemy.RealDistance))
+        {
+            _duelSeen = 0f;
+            _duelBursts.Clear();
             return;
         }
         // The duel clock runs while the bot sees the player and is firing (a trigger pull in the last few seconds); a hit by the bot on the player resets it.
