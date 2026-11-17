@@ -3405,6 +3405,10 @@ public class ShotReactionClass : BotComponentClassBase
                 {
                     continue;
                 }
+                if (_avoidDistance > 0f && PathPassesNear(from, sampled.Value, _avoidPos, _avoidDistance))
+                {
+                    continue;
+                }
                 if (requireBrokenLos && !BreaksLineOfSight(shotArea, sampled.Value))
                 {
                     continue;
@@ -3845,6 +3849,122 @@ public class ShotReactionClass : BotComponentClassBase
     private string _duelForceReason = "";
     private float _nextHurtRoll;
     private bool _hurtLeave;
+    private bool _hurtPending;
+    private float _hurtPendingSince;
+    private float _hurtCooldownUntil;
+    private Vector3 _avoidPos;
+    private float _avoidDistance;
+    private readonly NavMeshPath _avoidPath = new();
+
+    /// <summary>True when the walking path from a to b is not complete or passes within radius meters (horizontally) of point: a way out that leads through the player is no way out.</summary>
+    private bool PathPassesNear(Vector3 a, Vector3 b, Vector3 point, float radius)
+    {
+        if (!NavMesh.CalculatePath(a, b, NavMesh.AllAreas, _avoidPath) || _avoidPath.status != NavMeshPathStatus.PathComplete)
+        {
+            return true;
+        }
+        Vector3[] corners = _avoidPath.corners;
+        Vector2 p = new(point.x, point.z);
+        for (int i = 0; i < corners.Length - 1; i++)
+        {
+            Vector2 s = new(corners[i].x, corners[i].z);
+            Vector2 e = new(corners[i + 1].x, corners[i + 1].z);
+            Vector2 d = e - s;
+            float len = d.sqrMagnitude;
+            float u = len > 0.0001f ? Mathf.Clamp01(Vector2.Dot(p - s, d) / len) : 0f;
+            if ((p - (s + (d * u))).magnitude < radius)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// A bot that is badly injured or dying, and sees the player (or is being hit), may break off to heal, at any range: it rolls every ShotHurtRollInterval seconds, weighted by how hurt
+    /// it is, its resolve, whether it can heal and (at close range) ShotHurtCloseFactor. It goes to a place out of the player's sight, not far at close range (ShotHurtCloseDistanceMult), far at
+    /// long range, and holds there at least ShotHurtMinHold seconds. A failed roll at range may become a push; otherwise it keeps fighting. It never starts mid-burst (it waits for a pause
+    /// in its fire). A bot with no way out that does not pass within ShotHurtAvoidDistance of the player (trapped) stays and fights.
+    /// </summary>
+    private void TryHurtRetreat(Enemy enemy, float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (fork.ShotHurtLeaveChance <= 0f || Relocating || now < _hurtCooldownUntil || OnStationary())
+        {
+            return;
+        }
+        ETagStatus health = Bot.Memory.Health.HealthStatus;
+        if (health != ETagStatus.BadlyInjured && health != ETagStatus.Dying)
+        {
+            _hurtPending = false;
+            return;
+        }
+        float distance = enemy.RealDistance;
+        bool close = IsCloseRange(distance);
+        if (!_hurtPending)
+        {
+            if (now < _nextHurtRoll || (!enemy.IsVisible && _duelHits.Count == 0))
+            {
+                return;
+            }
+            _nextHurtRoll = now + fork.ShotHurtRollInterval;
+            float resolve = DuelResolve(enemy);
+            bool meds = HasMeds();
+            float chance = fork.ShotHurtLeaveChance * (health == ETagStatus.Dying ? 1f : 0.7f) * Mathf.Lerp(1.3f, 0.7f, resolve) * (meds ? 1f : fork.ShotHurtNoMedsFactor) * (close ? fork.ShotHurtCloseFactor : 1f);
+            chance = Mathf.Clamp01(chance);
+            if (Random.value < chance)
+            {
+                _hurtPending = true;
+                _hurtPendingSince = now;
+                LogEvent($"badly hurt ({health}), breaks off to heal (chance {chance:0.00}, can heal {meds}, resolve {resolve:0.00}, player at {distance:0} m{(close ? ", close range" : "")})");
+            }
+            else
+            {
+                float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+                float pull = DuelPull(now, distance);
+                if (!close && distance <= reach && pull < 0.5f && Random.value < fork.ShotHurtPushChance)
+                {
+                    LogEvent($"badly hurt ({health}) but goes for the push anyway (leave chance was {chance:0.00})");
+                    _duelSeen = 0f;
+                    _duelBursts.Clear();
+                    _duelCooldownUntil = now + 20f;
+                    StartPush(enemy, now);
+                }
+                else
+                {
+                    LogEvent($"badly hurt ({health}) but keeps fighting (leave chance was {chance:0.00})");
+                }
+                return;
+            }
+        }
+        // Never mid-burst: wait for a pause in its fire, at most ShotDuelWaitPause seconds.
+        ShootData fireData = Bot.BotOwner.ShootData;
+        if (fireData != null && now - fireData.LastTriggerPressd < fork.ShotDuelBurstGap && now - _hurtPendingSince < fork.ShotDuelWaitPause)
+        {
+            return;
+        }
+        _hurtPending = false;
+        _enemy = enemy;
+        _forcedRetreat = true;
+        _avoidPos = enemy.EnemyPosition;
+        _avoidDistance = close ? Mathf.Max(fork.ShotHurtAvoidDistance, 0f) : 0f;
+        float mult = close ? fork.ShotHurtCloseDistanceMult : fork.ShotHurtDistanceMult;
+        bool started = TryStartRelocating(ScaledRelocateDistance(mult));
+        _avoidDistance = 0f;
+        if (started)
+        {
+            _hurtCooldownUntil = now + fork.ShotDuelCooldown;
+            _duelSeen = 0f;
+            _duelBursts.Clear();
+            _longRetreat = true;
+            _hurtLeave = true;
+            LogEvent($"badly hurt: retreats to heal, distance x{mult:0.0}{(close ? " (close range, a way out that does not pass the player)" : "")}");
+            return;
+        }
+        _forcedRetreat = false;
+        _hurtCooldownUntil = now + 20f;
+        LogEvent($"badly hurt: no way out{(close ? " that does not pass the player" : "")}, stays and fights");
+    }
     private float _duelDueSince = -1f;
 
     /// <summary>The bot has something to heal with (first aid or a surgical kit it would use now): SAIN's own healing can run in cover after a retreat.</summary>
@@ -4331,6 +4451,7 @@ public class ShotReactionClass : BotComponentClassBase
             }
             return;
         }
+        TryHurtRetreat(enemy, now);
         // At close range it is a fight, not a duel: the clock does not run (it would otherwise retreat the moment the range opens).
         if (IsCloseRange(enemy.RealDistance))
         {
@@ -4392,38 +4513,6 @@ public class ShotReactionClass : BotComponentClassBase
                 LogEvent($"duel: a squadmate was killed, it decides now (chance {decideChance:0.00}, resolve {resolve:0.00})");
             }
         }
-        // Badly hurt (not at close range): it may break off to heal, or go for it anyway. A roll every ShotHurtRollInterval seconds while hurt, weighted by how hurt it is,
-        // its resolve (personality, squad, equipment), whether it can heal and the dice: sometimes it just keeps fighting, and sometimes pushes at low health.
-        if (!_duelForceLeave && now >= _nextHurtRoll && !IsCloseRange(distance) && !OnStationary())
-        {
-            ETagStatus health = Bot.Memory.Health.HealthStatus;
-            if (health == ETagStatus.BadlyInjured || health == ETagStatus.Dying)
-            {
-                _nextHurtRoll = now + fork.ShotHurtRollInterval;
-                bool meds = HasMeds();
-                float chance = fork.ShotHurtLeaveChance * (health == ETagStatus.Dying ? 1f : 0.7f) * Mathf.Lerp(1.3f, 0.7f, resolve) * (meds ? 1f : fork.ShotHurtNoMedsFactor);
-                chance = Mathf.Clamp01(chance);
-                if (Random.value < chance)
-                {
-                    _duelForceLeave = true;
-                    _duelForceReason = "badly hurt";
-                    LogEvent($"duel: badly hurt ({health}), breaks off (chance {chance:0.00}, can heal {meds}, resolve {resolve:0.00})");
-                }
-                else if (distance <= reachNow && pull < 0.5f && Random.value < fork.ShotHurtPushChance)
-                {
-                    LogEvent($"duel: badly hurt ({health}) but goes for the push anyway (leave chance was {chance:0.00})");
-                    _duelSeen = 0f;
-                    _duelBursts.Clear();
-                    _duelCooldownUntil = now + 20f;
-                    StartPush(enemy, now);
-                    return;
-                }
-                else
-                {
-                    LogEvent($"duel: badly hurt ({health}) but keeps fighting (leave chance was {chance:0.00})");
-                }
-            }
-        }
         bool forced = _duelForceLeave;
         if (!forced && (_duelSeen < _duelTarget || _duelHits.Count < Mathf.RoundToInt(fork.ShotDuelShots)))
         {
@@ -4474,12 +4563,7 @@ public class ShotReactionClass : BotComponentClassBase
         // Stubborn bots relocate shorter, timid ones and those taking a beating further.
         int missed = _duelBursts.Count;
         float mult = Mathf.Min((fork.ShotDuelDistanceMult * Mathf.Lerp(1.4f, 0.7f, resolve) * (1f + (pull * 0.5f))) + (_duelRepeats * 0.5f), Mathf.Max(fork.ShotDuelDistanceMult, fork.ShotDuelDistanceMultMax));
-        bool hurtLeave = forced && _duelForceReason == "badly hurt";
-        if (hurtLeave)
-        {
-            // A hurt bot goes much further: it wants to heal, not to be found.
-            mult = Mathf.Max(mult, fork.ShotHurtDistanceMult);
-        }
+
         if (TryStartRelocating(ScaledRelocateDistance(mult)))
         {
             _duelCooldownUntil = now + fork.ShotDuelCooldown;
@@ -4489,7 +4573,6 @@ public class ShotReactionClass : BotComponentClassBase
             _duelRepeats++;
             _lastDuelRetreat = now;
             _longRetreat = true;
-            _hurtLeave = hurtLeave;
             LogEvent($"duel retreat{(forced ? $" ({_duelForceReason})" : "")}: has been firing at the player for {seen:0} s without hitting it (limit {_duelTarget:0} s), {hits} hits or close bullets on it in {fork.ShotDuelWindow:0} s, player at {distance:0} m, resolve {resolve:0.00}, pull {pull:0.00} ({missed} missed bursts), retreat distance x{mult:0.0} (repeat {_duelRepeats})");
             return;
         }

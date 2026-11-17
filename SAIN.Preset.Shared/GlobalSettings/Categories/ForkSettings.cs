@@ -2327,7 +2327,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Duel/Hurt")]
     [Name("Hurt: Break Off Chance")]
-    [Description("A bot that is badly injured or dying and in a duel with you (not at close range) rolls this chance to break off at once and retreat to heal (a full leave, much further than a normal duel leave). Scaled by how hurt it is (dying 100%, badly injured 70%), by its resolve (timid, alone or outranged leaves more; aggressive with a squad less) and by Hurt: No Meds Factor. Rolled every Hurt Roll Interval while it stays hurt. Related: Hurt Push Chance, Hurt Distance, Hurt Min Hold, Duel Leave settings, Duel Waits For A Pause In Fire.")]
+    [Description("A bot that is badly injured or dying and who sees you (or is being hit), at any range, rolls this chance to break off at once and retreat to heal (out of your sight: far at long range, a short way at close range, see Hurt Close Distance). Scaled by how hurt it is (dying 100%, badly injured 70%), by its resolve (timid, alone or outranged leaves more; aggressive with a squad less) and by Hurt: No Meds Factor. Rolled every Hurt Roll Interval while it stays hurt. Related: Hurt Close Factor, Hurt Close Distance, Hurt Avoid Distance, Hurt Push Chance, Hurt Distance, Hurt Min Hold, Duel Waits For A Pause In Fire.")]
     [MinMax(0f, 1f, 100f)]
     public float ShotHurtLeaveChance = 0.6f;
 
@@ -2365,6 +2365,27 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("How often a bot that stays badly hurt rolls again (Break Off Chance, then Push Anyway). Related: Hurt: Break Off Chance.")]
     [MinMax(5f, 120f, 1f)]
     public float ShotHurtRollInterval = 30f;
+
+    [DataMember]
+    [Category("Duel/Hurt")]
+    [Name("Hurt: Close Range Factor")]
+    [Description("Multiplies the Break Off Chance at close range, where running means turning your back on the shooter. 1 = same as at range, 0 = a hurt bot never breaks off at close range. Related: Hurt: Break Off Chance, Hurt Close Distance, Hurt Avoid Distance.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotHurtCloseFactor = 0.8f;
+
+    [DataMember]
+    [Category("Duel/Hurt")]
+    [Name("Hurt: Close Range Distance Multiplier")]
+    [Description("At close range a hurt bot only goes this many times the normal relocate distance (a short way, to the nearest place out of your sight to heal), not the long retreat of Hurt Distance Multiplier. Related: Shot Relocate Min/Max Distance, Hurt Distance Multiplier.")]
+    [MinMax(0.2f, 4f, 10f)]
+    public float ShotHurtCloseDistanceMult = 0.6f;
+
+    [DataMember]
+    [Category("Duel/Hurt")]
+    [Name("Hurt: Avoid Distance (m)")]
+    [Description("At close range the retreat path must not pass within this many meters of you. If no point can be reached that way the bot is trapped (the only way out leads through you) and stays and fights instead. 0 = no check. Related: Hurt: Close Range Factor.")]
+    [MinMax(0f, 15f, 10f)]
+    public float ShotHurtAvoidDistance = 4f;
 
     public override void Init(List<ISAINSettings> list)
     {
