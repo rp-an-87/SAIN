@@ -2824,6 +2824,12 @@ public class ShotReactionClass : BotComponentClassBase
             // After a duel or pressure retreat the bot stays away for at least this long, whatever its safety says.
             _longRetreat = false;
             minHold = Mathf.Max(minHold, fork.ShotLongRetreatMinHold);
+            if (_hurtLeave)
+            {
+                // Badly hurt: long enough in cover for SAIN's own healing to run before it investigates again.
+                _hurtLeave = false;
+                minHold = Mathf.Max(minHold, fork.ShotHurtMinHold);
+            }
             hold = Mathf.Max(hold, minHold);
         }
         _holdMinUntil = now + minHold;
@@ -3836,7 +3842,17 @@ public class ShotReactionClass : BotComponentClassBase
     private float _duelLastTrigger = -999f;
     private readonly List<float> _duelBursts = [];
     private bool _duelForceLeave;
+    private string _duelForceReason = "";
+    private float _nextHurtRoll;
+    private bool _hurtLeave;
     private float _duelDueSince = -1f;
+
+    /// <summary>The bot has something to heal with (first aid or a surgical kit it would use now): SAIN's own healing can run in cover after a retreat.</summary>
+    private bool HasMeds()
+    {
+        var medicine = Bot.BotOwner?.Medecine;
+        return medicine != null && (medicine.FirstAid?.ShallStartUse() == true || medicine.SurgicalKit?.ShallStartUse() == true);
+    }
     private float _duelExposure;
     private float _duelFlavor;
     private float _squadLossTime = -999f;
@@ -4025,6 +4041,7 @@ public class ShotReactionClass : BotComponentClassBase
                 EndPush($"a squadmate was killed (chance {breakChance:0.00}, resolve {pushResolve:0.00}), it leaves instead");
                 _duelSeen = Mathf.Max(_duelTarget, 1f);
                 _duelForceLeave = true;
+                _duelForceReason = "squad loss";
                 _duelCooldownUntil = 0f;
                 return false;
             }
@@ -4278,6 +4295,7 @@ public class ShotReactionClass : BotComponentClassBase
                 if (Random.value < chance)
                 {
                     _duelForceLeave = true;
+                    _duelForceReason = "spotted, sniper rule";
                     LogEvent($"duel: spotted and {(hit ? "hit" : "shot at")} at {distance:0} m with a {Bot.Info.WeaponInfo.EWeaponClass}, it gives the position up (chance {chance:0.00}, resolve {resolve:0.00})");
                 }
             }
@@ -4333,6 +4351,7 @@ public class ShotReactionClass : BotComponentClassBase
                 _duelFlavor = Random.Range(-fork.ShotDuelFlavor, fork.ShotDuelFlavor);
                 _duelExposure = 0f;
                 _duelForceLeave = false;
+                _duelForceReason = "";
                 _duelDueSince = -1f;
                 if (fork.ShotDuelLog)
                 {
@@ -4371,6 +4390,38 @@ public class ShotReactionClass : BotComponentClassBase
             {
                 _duelSeen = Mathf.Max(_duelSeen, _duelTarget);
                 LogEvent($"duel: a squadmate was killed, it decides now (chance {decideChance:0.00}, resolve {resolve:0.00})");
+            }
+        }
+        // Badly hurt (not at close range): it may break off to heal, or go for it anyway. A roll every ShotHurtRollInterval seconds while hurt, weighted by how hurt it is,
+        // its resolve (personality, squad, equipment), whether it can heal and the dice: sometimes it just keeps fighting, and sometimes pushes at low health.
+        if (!_duelForceLeave && now >= _nextHurtRoll && !IsCloseRange(distance) && !OnStationary())
+        {
+            ETagStatus health = Bot.Memory.Health.HealthStatus;
+            if (health == ETagStatus.BadlyInjured || health == ETagStatus.Dying)
+            {
+                _nextHurtRoll = now + fork.ShotHurtRollInterval;
+                bool meds = HasMeds();
+                float chance = fork.ShotHurtLeaveChance * (health == ETagStatus.Dying ? 1f : 0.7f) * Mathf.Lerp(1.3f, 0.7f, resolve) * (meds ? 1f : fork.ShotHurtNoMedsFactor);
+                chance = Mathf.Clamp01(chance);
+                if (Random.value < chance)
+                {
+                    _duelForceLeave = true;
+                    _duelForceReason = "badly hurt";
+                    LogEvent($"duel: badly hurt ({health}), breaks off (chance {chance:0.00}, can heal {meds}, resolve {resolve:0.00})");
+                }
+                else if (distance <= reachNow && pull < 0.5f && Random.value < fork.ShotHurtPushChance)
+                {
+                    LogEvent($"duel: badly hurt ({health}) but goes for the push anyway (leave chance was {chance:0.00})");
+                    _duelSeen = 0f;
+                    _duelBursts.Clear();
+                    _duelCooldownUntil = now + 20f;
+                    StartPush(enemy, now);
+                    return;
+                }
+                else
+                {
+                    LogEvent($"duel: badly hurt ({health}) but keeps fighting (leave chance was {chance:0.00})");
+                }
             }
         }
         bool forced = _duelForceLeave;
@@ -4423,6 +4474,12 @@ public class ShotReactionClass : BotComponentClassBase
         // Stubborn bots relocate shorter, timid ones and those taking a beating further.
         int missed = _duelBursts.Count;
         float mult = Mathf.Min((fork.ShotDuelDistanceMult * Mathf.Lerp(1.4f, 0.7f, resolve) * (1f + (pull * 0.5f))) + (_duelRepeats * 0.5f), Mathf.Max(fork.ShotDuelDistanceMult, fork.ShotDuelDistanceMultMax));
+        bool hurtLeave = forced && _duelForceReason == "badly hurt";
+        if (hurtLeave)
+        {
+            // A hurt bot goes much further: it wants to heal, not to be found.
+            mult = Mathf.Max(mult, fork.ShotHurtDistanceMult);
+        }
         if (TryStartRelocating(ScaledRelocateDistance(mult)))
         {
             _duelCooldownUntil = now + fork.ShotDuelCooldown;
@@ -4432,7 +4489,8 @@ public class ShotReactionClass : BotComponentClassBase
             _duelRepeats++;
             _lastDuelRetreat = now;
             _longRetreat = true;
-            LogEvent($"duel retreat{(forced ? " (spotted, sniper rule)" : "")}: has been firing at the player for {seen:0} s without hitting it (limit {_duelTarget:0} s), {hits} hits or close bullets on it in {fork.ShotDuelWindow:0} s, player at {distance:0} m, resolve {resolve:0.00}, pull {pull:0.00} ({missed} missed bursts), retreat distance x{mult:0.0} (repeat {_duelRepeats})");
+            _hurtLeave = hurtLeave;
+            LogEvent($"duel retreat{(forced ? $" ({_duelForceReason})" : "")}: has been firing at the player for {seen:0} s without hitting it (limit {_duelTarget:0} s), {hits} hits or close bullets on it in {fork.ShotDuelWindow:0} s, player at {distance:0} m, resolve {resolve:0.00}, pull {pull:0.00} ({missed} missed bursts), retreat distance x{mult:0.0} (repeat {_duelRepeats})");
             return;
         }
         _forcedRetreat = false;

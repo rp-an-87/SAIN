@@ -2324,6 +2324,48 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("Writes one log line when a duel clock starts and every 15 s while it runs (time seen firing, limit, resolve, pull, weapon, distance, why it is not leaving yet). For tuning. Related: Shot Reaction Log.")]
     public bool ShotDuelLog = true;
 
+    [DataMember]
+    [Category("Duel/Hurt")]
+    [Name("Hurt: Break Off Chance")]
+    [Description("A bot that is badly injured or dying and in a duel with you (not at close range) rolls this chance to break off at once and retreat to heal (a full leave, much further than a normal duel leave). Scaled by how hurt it is (dying 100%, badly injured 70%), by its resolve (timid, alone or outranged leaves more; aggressive with a squad less) and by Hurt: No Meds Factor. Rolled every Hurt Roll Interval while it stays hurt. Related: Hurt Push Chance, Hurt Distance, Hurt Min Hold, Duel Leave settings, Duel Waits For A Pause In Fire.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotHurtLeaveChance = 0.6f;
+
+    [DataMember]
+    [Category("Duel/Hurt")]
+    [Name("Hurt: No Meds Factor")]
+    [Description("Multiplies the Break Off Chance when the bot has nothing to heal with (no first aid or surgical kit it would use). Below 1 a hurt bot without meds is less eager to leave, since there is nothing to heal. Related: Hurt: Break Off Chance.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotHurtNoMedsFactor = 0.6f;
+
+    [DataMember]
+    [Category("Duel/Hurt")]
+    [Name("Hurt: Push Anyway Chance")]
+    [Description("When the Break Off roll fails, the chance that the hurt bot goes for the push instead (cover to cover toward you, as in a duel push), if you are inside its weapon reach and its pull is low. Otherwise it keeps fighting. Related: Duel Push settings, Hurt: Break Off Chance.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotHurtPushChance = 0.3f;
+
+    [DataMember]
+    [Category("Duel/Hurt")]
+    [Name("Hurt: Distance Multiplier")]
+    [Description("A hurt bot's retreat distance is at least this many times the normal relocate distance (Shot Relocate Min/Max Distance). Falls back to shorter distances when the navmesh has no point that far. Related: Duel Leave Distance Multiplier, Shot Relocate Min/Max Distance.")]
+    [MinMax(1f, 8f, 10f)]
+    public float ShotHurtDistanceMult = 2.5f;
+
+    [DataMember]
+    [Category("Duel/Hurt")]
+    [Name("Hurt: Min Hold (s)")]
+    [Description("After a hurt retreat the bot holds cover at least this long, so SAIN's own healing has time to run before it investigates again. Related: Long Retreat Min Hold, Hold After Retreat.")]
+    [MinMax(0f, 300f, 1f)]
+    public float ShotHurtMinHold = 60f;
+
+    [DataMember]
+    [Category("Duel/Hurt")]
+    [Name("Hurt: Roll Interval (s)")]
+    [Description("How often a bot that stays badly hurt rolls again (Break Off Chance, then Push Anyway). Related: Hurt: Break Off Chance.")]
+    [MinMax(5f, 120f, 1f)]
+    public float ShotHurtRollInterval = 30f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);
