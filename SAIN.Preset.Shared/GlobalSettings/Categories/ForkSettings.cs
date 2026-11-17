@@ -272,7 +272,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction: Knowing Where The Shooter Is/Rough area rings")]
     [Name("Area Narrowing Shared Radius")]
-    [Description("When the ring of a Rogue or Goon narrows, the Rogues and Goons within this many meters of it (other squads too) get the same count at once. 0 = off. Related: Rogues and Goons only. Shares the narrowing and also the bullet pressure that feeds the Pressure retreat (Rogue Behaviour). Ordinary squads use Shared By Squad.")]
+    [Description("When the ring of a Rogue or Goon narrows, the Rogues and Goons within this many meters of it (other squads too) get the same count at once. 0 = off. Related: Rogues and Goons only. Shares the narrowing, and a hit or close bullet at one keeps the pressure clocks of the others running (Pressure retreat, Rogue Behaviour). Ordinary squads use Shared By Squad.")]
     [MinMax(0f, 300f, 1f)]
     public float AreaShareRadius = 60f;
 
@@ -1359,7 +1359,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Duel/Clock")]
     [Name("Duel: Firing At The Player For, Min (s)")]
-    [Description("The shortest time (seconds) a bot keeps firing at the player while seeing it, without hitting it once, before it gives the position up. Each bot picks a random time between Min and Max. Related: Base time; scaled by the bot's resolve (personality, reach vs distance, health, squadmates within 50 m) and cut by the pull, never under Time Floor.")]
+    [Description("The shortest time (seconds) a bot keeps firing at the player while seeing it, without hitting it once, before it gives the position up. The clock resets on a hit by the bot, in the close-range zone and after Duel Forgotten After seconds without seeing the player and firing. Each bot picks a random time between Min and Max. Related: Base time; scaled by the bot's resolve (personality, reach vs distance, health, squadmates within 50 m) and cut by the pull, never under Time Floor.")]
     [MinMax(5f, 300f, 1f)]
     public float ShotDuelTimeMin = 20f;
 
@@ -1410,7 +1410,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Duel Miss Window (s)")]
     [Description("Only bursts that missed inside this window count toward the pull to leave. A hit by the bot on the player clears them. Related: Only misses in this window count; a hit by the bot on you clears them.")]
     [MinMax(5f, 120f, 1f)]
-    public float ShotDuelMissWindow = 20f;
+    public float ShotDuelMissWindow = 15f;
 
     [DataMember]
     [Category("Duel/Misses and hits (the pull)")]
@@ -1457,7 +1457,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Duel/Leave")]
     [Name("Duel Leave Distance Multiplier")]
-    [Description("A bot that gives up a duel (it insisted on shooting without hitting) relocates this many times the normal relocate distance (Relocate Min/Max). 1.5 = 60 to 120 m with the default 40 to 80 m. Related: Times the base retreat distance (Retreat: Min/Max Distance): stubborn bots go shorter, timid or beaten ones further; the pull adds up to 50%.")]
+    [Description("A bot that gives up a duel (it insisted on shooting without hitting) relocates this many times the normal relocate distance (Relocate Min/Max). 1.5 = 60 to 120 m with the default 40 to 80 m. When no navmesh point exists that far the retreat falls back to 60%, 35% and 20% of the distance (never under 15 m). Related: Times the base retreat distance (Retreat: Min/Max Distance): stubborn bots go shorter, timid or beaten ones further; the pull adds up to 50%.")]
     [MinMax(1f, 6f, 10f)]
     public float ShotDuelDistanceMult = 1.5f;
 
@@ -1646,7 +1646,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Rogue Behaviour/Pressure retreat")]
     [Name("Rogue Pressure Retreat Enabled")]
-    [Description("Rogues and Goons that keep getting shot at or near for a while (hits and bullets passing within the Near-Hit Distance, not shots they merely hear, at them or at Rogues and Goons within the Narrowing Shared Radius) without ever seeing the player give the position up: a full retreat, down off the roof. A window for the sniper, then they are gone. Only the Rogues near the shooting, not all of them. A Rogue on a mounted gun leaves it. Off = they stay and keep covering. Related: Rogues and Goons only. Pressure comes from hits and close bullets (Near-Hit Distance) at the bot or at Rogues and Goons within Narrowing Shared Radius.")]
+    [Description("Rogues and Goons that keep getting shot at or near for a while (hits and bullets passing within the Near-Hit Distance, not shots they merely hear, at them or at Rogues and Goons within the Narrowing Shared Radius) without ever seeing the player give the position up: a full retreat, down off the roof. A window for the sniper, then they are gone. A hit or close bullet at one Rogue only keeps the pressure of its neighbours running; each Rogue has its own clock and its own random limit. A Rogue on a mounted gun leaves it. Off = they stay and keep covering. Related: Rogues and Goons only. Pressure comes from hits and close bullets (Near-Hit Distance) at the bot or at Rogues and Goons within Narrowing Shared Radius.")]
     public bool RoguePressureRetreatEnabled = true;
 
     [DataMember]
@@ -1666,7 +1666,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Rogue Behaviour/Pressure retreat")]
     [Name("Pressure Gap (s)")]
-    [Description("A quiet spell longer than this (no hit or close bullet at or near the bot) resets the pressure clock. Related: A longer gap lets spaced shots keep building pressure; a shorter one resets sooner.")]
+    [Description("A quiet spell longer than this (no hit or close bullet at or near the bot) resets the pressure clock. A hit or close bullet keeps the clock running; it does not add to it. Related: A longer gap lets spaced shots keep building pressure; a shorter one resets sooner.")]
     [MinMax(5f, 120f, 1f)]
     public float RoguePressureGap = 30f;
 
@@ -1693,7 +1693,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Rogue Behaviour/Pressure retreat")]
     [Name("Pressure Retreat Distance Multiplier")]
-    [Description("A Rogue or Goon that runs (pressure retreat) goes this many times the normal relocate distance (Relocate Min/Max) away. Related: Times the base retreat distance (Shot Relocate Min/Max Distance).")]
+    [Description("A Rogue or Goon that runs (pressure retreat) goes this many times the normal relocate distance (Relocate Min/Max) away, falling back to 60%, 35% and 20% of it when no navmesh point exists that far. Related: Times the base retreat distance (Shot Relocate Min/Max Distance).")]
     [MinMax(1f, 6f, 10f)]
     public float RogueRetreatDistanceMult = 2.5f;
 
@@ -2225,26 +2225,26 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Name("Duel Weight: Marksman Rifle")]
     [Description("A missed burst counts this many times for a bot with a marksman rifle (SVD, SVDS, DMRs), by rifle class and not by fire mode. Fades in with the distance as a share of the bot's reach (1x up close, see Long Range Start/Full). Related: multiplies the Pull Per Missed Burst and Pull Per Hit On The Bot above; the total pull is still capped at 0.8.")]
     [MinMax(1f, 6f, 10f)]
-    public float ShotDuelWeightMarksman = 2f;
+    public float ShotDuelWeightMarksman = 1.4f;
 
     [DataMember]
     [Category("Duel/Misses and hits (the pull)")]
     [Name("Duel Weight: Sniper Rifle")]
     [Description("A missed burst counts this many times for a bot with a sniper rifle (bolt actions like the M700). Fades in with the distance as a share of reach. Related: same as the marksman weight; a hit on a sniper also rolls the sniper rule (Long Rifles).")]
     [MinMax(1f, 6f, 10f)]
-    public float ShotDuelWeightSniper = 3f;
+    public float ShotDuelWeightSniper = 1.8f;
 
     [DataMember]
     [Category("Duel/Long rifles")]
     [Name("Spotted Marksman/Sniper: Chance Per Hit")]
-    [Description("A bot with a marksman or sniper rifle that is hit while dueling you rolls this chance (0 to 1) to give the position up at once (a full leave). Scaled by the long range fade, by its resolve (personality, equipment, health, squad: timid leaves more, stubborn less) and raised a little by every earlier hit or close bullet in the same duel, so it often takes two or three. Related: Close Bullet chance, Long Range Start/Full, Duel Leave settings, Duel Flavor.")]
+    [Description("A bot with a marksman or sniper rifle that sees you and is firing at you (a running duel) and is hit rolls this chance (0 to 1) to give the position up at once (a full leave, after a pause in its fire). No chance inside the Long Range Start (a share of its reach), full strength from Long Range Full. Scaled by the long range fade, by its resolve (personality, equipment, health, squad: timid leaves more, stubborn less) and raised a little by every earlier hit or close bullet in the same duel, so it often takes two or three. Related: Close Bullet chance, Long Range Start/Full, Duel Leave settings, Duel Flavor.")]
     [MinMax(0f, 1f, 100f)]
     public float ShotDuelSniperHitChance = 0.35f;
 
     [DataMember]
     [Category("Duel/Long rifles")]
     [Name("Spotted Marksman/Sniper: Chance Per Close Bullet")]
-    [Description("The same roll for a bullet passing within the Near-Hit Distance (Shot Again > Self preservation), without a hit. Related: Chance Per Hit, Near-Hit Distance, Long Range Start/Full.")]
+    [Description("The same roll, only during a running duel, for a bullet passing within the Near-Hit Distance (Shot Again > Self preservation), without a hit. Related: Chance Per Hit, Near-Hit Distance, Long Range Start/Full.")]
     [MinMax(0f, 1f, 100f)]
     public float ShotDuelSniperCloseChance = 0.15f;
 
@@ -2293,7 +2293,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Duel/Squad loss")]
     [Name("Squad Loss: Resolve Penalty")]
-    [Description("When a squadmate is killed by you, the survivors lose this much resolve (timid ones 30% more, aggressive ones 30% less) for the Squad Loss Time, and usually decide at once: leave, or push if their resolve and numbers allow it. Not when the fight is close. 0 = off. Related: Duel Push Resolve, Squad Role Range (who counts as a squadmate), Squad Loss Min Distance.")]
+    [Description("When a squadmate is killed by you, the survivors lose this much resolve (timid ones 30% more, aggressive ones 30% less) for the Squad Loss Time, and may decide at once (a 40% to 85% chance by resolve, only while their duel clock runs: they see you and fire): leave, or push if their resolve and numbers allow it. In the close-range zone a separate roll applies (Squad Loss: Close Range Factor). 0 = off. Related: Duel Push Resolve, Squad Role Range (who counts as a squadmate), Squad Loss Min Distance.")]
     [MinMax(0f, 1f, 100f)]
     public float ShotDuelSquadLossPenalty = 0.3f;
 
