@@ -2947,6 +2947,30 @@ public class ShotReactionClass : BotComponentClassBase
     private float _lastDuelHitTime = -999f;
 
     /// <summary>
+    /// The bot knows where the player is: it sees him now, or saw him within ShotKnownPositionWindow seconds (then the position is where it last saw him). Otherwise it only has the rough area.
+    /// A bot that knows plans its retreat against that position and only goes somewhere out of the player's sight; one that does not keeps the rough-area behavior.
+    /// </summary>
+    private bool KnowsPosition(Enemy enemy, out Vector3 position)
+    {
+        position = Vector3.zero;
+        if (enemy == null)
+        {
+            return false;
+        }
+        if (enemy.IsVisible)
+        {
+            position = enemy.EnemyPosition;
+            return true;
+        }
+        if (enemy.Seen && enemy.TimeSinceSeen <= GlobalSettings.Fork.ShotKnownPositionWindow && enemy.LastKnownPosition != null)
+        {
+            position = enemy.LastKnownPosition.Value;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// The bot is engaged in actual combat with the player: it fired at him in the last 8 s, or he hit it or put a bullet close to it in the last 10 s. Merely being able to see him is not enough.
     /// Only an engaged bot plans its break-off against the player's real position and rolls the hurt and squad-death break-offs.
     /// </summary>
@@ -3984,8 +4008,10 @@ public class ShotReactionClass : BotComponentClassBase
         _avoidPos = enemy.EnemyPosition;
         _avoidDistance = close ? Mathf.Max(fork.ShotHurtAvoidDistance, 0f) : 0f;
         // At close range the way out must also end out of the player's sight (no running into the open); with none the bot stays and fights.
-        _requireHidden = close && fork.ShotHurtCloseNeedsHidden;
-        _knownThreat = IsEngaged(now) ? enemy.EnemyPosition : null;
+        // A bot that knows where the player is retreats out of his sight (always at close range, see ShotHurtCloseNeedsHidden; farther away ShotKnownRetreatNeedsHidden), against his real position.
+        bool known = KnowsPosition(enemy, out Vector3 knownPosition);
+        _requireHidden = known && (close ? fork.ShotHurtCloseNeedsHidden : fork.ShotKnownRetreatNeedsHidden);
+        _knownThreat = known ? knownPosition : null;
         bool started = TryStartRelocating(ScaledRelocateDistance(mult));
         _knownThreat = null;
         _avoidDistance = 0f;
@@ -4669,9 +4695,12 @@ public class ShotReactionClass : BotComponentClassBase
         int missed = _duelBursts.Count;
         float mult = Mathf.Min((fork.ShotDuelDistanceMult * Mathf.Lerp(1.4f, 0.7f, resolve) * (1f + (pull * 0.5f))) + (_duelRepeats * 0.5f), Mathf.Max(fork.ShotDuelDistanceMult, fork.ShotDuelDistanceMultMax));
 
-        _knownThreat = IsEngaged(now) ? enemy.EnemyPosition : null;
+        bool duelKnown = KnowsPosition(enemy, out Vector3 duelPosition);
+        _knownThreat = duelKnown ? duelPosition : null;
+        _requireHidden = duelKnown && fork.ShotKnownRetreatNeedsHidden;
         bool duelStarted = TryStartRelocating(ScaledRelocateDistance(mult));
         _knownThreat = null;
+        _requireHidden = false;
         if (duelStarted)
         {
             _duelCooldownUntil = now + fork.ShotDuelCooldown;
@@ -4686,6 +4715,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         _forcedRetreat = false;
         _duelCooldownUntil = now + 30f;
+        LogEvent($"duel: wants to leave but has no way out of the player's sight, keeps fighting (player at {distance:0} m)");
     }
 
     public override void ManualUpdate()

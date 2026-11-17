@@ -2400,6 +2400,19 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("On = at close range a break-off (hurt, or after a squad kill) only goes to a point out of your sight; with none, or with no way out that does not pass you, the bot stays and fights (no running into the open). Off = any reachable point. Costs one navmesh path and line check per candidate, once per break-off. Related: Hurt: Avoid Distance, Hurt: Close Range Factor, Squad Loss: Close Range Factor.")]
     public bool ShotHurtCloseNeedsHidden = true;
 
+    [DataMember]
+    [Category("Duel/Retreat planning")]
+    [Name("Known Position Window (s)")]
+    [Description("A bot knows where you are while it sees you and for this many seconds after it last saw you (the position is then where it last saw you). A bot that knows retreats against that position and only to a point out of your sight; a bot that does not know keeps using the rough area. Related: Retreat Needs Hiding, Hurt: Close Range Retreat Needs Hiding, the Rough area rings.")]
+    [MinMax(1f, 60f, 1f)]
+    public float ShotKnownPositionWindow = 8f;
+
+    [DataMember]
+    [Category("Duel/Retreat planning")]
+    [Name("Known Position: Retreat Needs Hiding")]
+    [Description("On = a bot that knows where you are (duel leave, hurt and squad-death break-offs) only retreats to a point out of your sight; with none it stays and fights instead of running into the open. At close range Hurt: Close Range Retreat Needs Hiding applies too. Related: Known Position Window, Hurt: Avoid Distance, Duel Leave settings.")]
+    public bool ShotKnownRetreatNeedsHidden = true;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);
