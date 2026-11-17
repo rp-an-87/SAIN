@@ -2410,8 +2410,8 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Duel/Retreat planning")]
     [Name("Known Position: Retreat Needs Hiding")]
-    [Description("On = a bot that knows where you are (duel leave, hurt and squad-death break-offs) only retreats to a point out of your sight; with none it stays and fights instead of running into the open. At close range Hurt: Close Range Retreat Needs Hiding applies too. Related: Known Position Window, Hurt: Avoid Distance, Duel Leave settings.")]
-    public bool ShotKnownRetreatNeedsHidden = true;
+    [Description("On = a bot that knows where you are (duel leave, hurt and squad-death break-offs) beyond close range also ONLY retreats to a point out of your sight, and stays and fights if there is none. Off (default) = beyond close range a point out of your sight is preferred but a retreat in your sight is allowed, since at mid and long range that is viable. At close range Hurt: Close Range Retreat Needs Hiding applies either way. Related: Known Position Window, Hurt: Avoid Distance, Duel Leave settings.")]
+    public bool ShotKnownRetreatNeedsHidden = false;
 
     public override void Init(List<ISAINSettings> list)
     {
