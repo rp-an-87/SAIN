@@ -2926,7 +2926,7 @@ public class ShotReactionClass : BotComponentClassBase
         if (_retreatDown)
         {
             _requireLower = true;
-            bool lower = TryRelocatePass(distanceOverride, true) || TryRelocatePass(distanceOverride, false);
+            bool lower = RelocatePasses(distanceOverride);
             _requireLower = false;
             if (lower)
             {
@@ -2934,7 +2934,15 @@ public class ShotReactionClass : BotComponentClassBase
             }
         }
         // A point out of the shooter's line of sight is preferred (the bot is gone, not just further away); any point is the fallback.
-        return TryRelocatePass(distanceOverride, true) || TryRelocatePass(distanceOverride, false);
+        return RelocatePasses(distanceOverride);
+    }
+
+    private bool _requireHidden;
+
+    /// <summary>A point out of the shooter's sight first, then (unless the retreat needs one, see _requireHidden) any point.</summary>
+    private bool RelocatePasses(float? distanceOverride)
+    {
+        return TryRelocatePass(distanceOverride, true) || (!_requireHidden && TryRelocatePass(distanceOverride, false));
     }
 
     private bool BreaksLineOfSight(Vector3 shotArea, Vector3 point)
@@ -3958,8 +3966,11 @@ public class ShotReactionClass : BotComponentClassBase
         _forcedRetreat = true;
         _avoidPos = enemy.EnemyPosition;
         _avoidDistance = close ? Mathf.Max(fork.ShotHurtAvoidDistance, 0f) : 0f;
+        // At close range the way out must also end out of the player's sight (no running into the open); with none the bot stays and fights.
+        _requireHidden = close && fork.ShotHurtCloseNeedsHidden;
         bool started = TryStartRelocating(ScaledRelocateDistance(mult));
         _avoidDistance = 0f;
+        _requireHidden = false;
         if (started)
         {
             _hurtCooldownUntil = now + fork.ShotDuelCooldown;
@@ -3967,12 +3978,12 @@ public class ShotReactionClass : BotComponentClassBase
             _duelBursts.Clear();
             _longRetreat = true;
             _hurtLeave = hurt;
-            LogEvent($"breaks off {why}: retreats, distance x{mult:0.0}{(close ? " (close range, a way out that does not pass the player)" : "")}, {waitNote}");
+            LogEvent($"breaks off {why}: retreats, distance x{mult:0.0}{(close ? " (close range, out of the player's sight, a way out that does not pass the player)" : "")}, {waitNote}");
             return true;
         }
         _forcedRetreat = false;
         _hurtCooldownUntil = now + 20f;
-        LogEvent($"breaks off {why}: no way out{(close ? " that does not pass the player" : "")}, stays and fights");
+        LogEvent($"breaks off {why}: no way out{(close ? " that is out of the player's sight and does not pass the player" : "")}, stays and fights");
         return false;
     }
 

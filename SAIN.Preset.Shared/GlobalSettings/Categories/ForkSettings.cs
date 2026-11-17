@@ -2394,6 +2394,12 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [MinMax(0f, 1f, 100f)]
     public float ShotSquadLossCloseFactor = 0.7f;
 
+    [DataMember]
+    [Category("Duel/Hurt")]
+    [Name("Hurt: Close Range Retreat Needs Hiding")]
+    [Description("On = at close range a break-off (hurt, or after a squad kill) only goes to a point out of your sight; with none, or with no way out that does not pass you, the bot stays and fights (no running into the open). Off = any reachable point. Costs one navmesh path and line check per candidate, once per break-off. Related: Hurt: Avoid Distance, Hurt: Close Range Factor, Squad Loss: Close Range Factor.")]
+    public bool ShotHurtCloseNeedsHidden = true;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);
