@@ -2873,7 +2873,48 @@ public class ShotReactionClass : BotComponentClassBase
     /// <summary>
     /// Picks a point on the far side from the vague shot area and starts walking there. False = no usable point, the bot goes back to its normal behavior.
     /// </summary>
+    private bool _quietRelocate;
+
+    /// <summary>
+    /// A retreat at a scaled distance (duel, pressure) may find no navmesh point that far (a roof, a compound, the edge of the map). It then falls back to shorter distances
+    /// (60%, 35% and 20% of it, never under 15 m) before it gives up, so a bot that wants to leave does not just stay.
+    /// </summary>
     private bool TryStartRelocating(float? distanceOverride = null)
+    {
+        bool log = GlobalSettings.Fork.ShotReactionLog;
+        _quietRelocate = distanceOverride.HasValue;
+        bool started = TryStartRelocatingAt(distanceOverride);
+        if (!started && distanceOverride.HasValue)
+        {
+            foreach (float share in RELOCATE_FALLBACK_SHARES)
+            {
+                float shorter = distanceOverride.Value * share;
+                if (shorter < 15f)
+                {
+                    break;
+                }
+                if (TryStartRelocatingAt(shorter))
+                {
+                    started = true;
+                    if (log)
+                    {
+                        LogEvent($"retreat: no point at {distanceOverride.Value:0} m, fell back to {shorter:0} m");
+                    }
+                    break;
+                }
+            }
+        }
+        _quietRelocate = false;
+        if (!started && distanceOverride.HasValue && log)
+        {
+            Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Tag}: no relocation point found at {distanceOverride.Value:0} m or any shorter distance, back to normal");
+        }
+        return started;
+    }
+
+    private static readonly float[] RELOCATE_FALLBACK_SHARES = [0.6f, 0.35f, 0.2f];
+
+    private bool TryStartRelocatingAt(float? distanceOverride)
     {
         // A pressure retreat of a Rogue or Goon goes down (off the roof) when it can; any other point is the fallback.
         if (_retreatDown)
@@ -3397,7 +3438,7 @@ public class ShotReactionClass : BotComponentClassBase
             BuildRoute(from, best, shotArea);
             return true;
         }
-        if (!requireBrokenLos && fork.ShotReactionLog)
+        if (!requireBrokenLos && fork.ShotReactionLog && !_quietRelocate)
         {
             Logger.LogInfoAlways($"[ShotReaction] t={Time.time:0.0} {Tag}: no relocation point found, back to normal");
         }
