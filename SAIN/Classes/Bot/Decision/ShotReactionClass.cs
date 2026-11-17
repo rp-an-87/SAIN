@@ -2939,6 +2939,23 @@ public class ShotReactionClass : BotComponentClassBase
 
     private bool _requireHidden;
 
+    /// <summary>
+    /// Set while a bot that SEES the player retreats (duel, hurt, squad kill): the retreat is planned against the player's real position, not the vague ring around it, so "out of sight"
+    /// and "further away" mean what they say. Null = the usual shot area (an unseen shooter).
+    /// </summary>
+    private Vector3? _knownThreat;
+    private float _lastDuelHitTime = -999f;
+
+    /// <summary>
+    /// The bot is engaged in actual combat with the player: it fired at him in the last 8 s, or he hit it or put a bullet close to it in the last 10 s. Merely being able to see him is not enough.
+    /// Only an engaged bot plans its break-off against the player's real position and rolls the hurt and squad-death break-offs.
+    /// </summary>
+    private bool IsEngaged(float now)
+    {
+        ShootData shootData = Bot.BotOwner?.ShootData;
+        return (shootData != null && now - shootData.LastTriggerPressd < 8f) || now - _lastDuelHitTime < 10f;
+    }
+
     /// <summary>A point out of the shooter's sight first, then (unless the retreat needs one, see _requireHidden) any point.</summary>
     private bool RelocatePasses(float? distanceOverride)
     {
@@ -3373,7 +3390,7 @@ public class ShotReactionClass : BotComponentClassBase
     {
         ForkSettings fork = GlobalSettings.Fork;
         Vector3 from = Bot.Position;
-        Vector3 shotArea = Time.time - _vaguePositionTime < VAGUE_POSITION_MAX_AGE ? _vaguePosition : (_enemy != null ? _enemy.EnemyPosition : from);
+        Vector3 shotArea = _knownThreat ?? (Time.time - _vaguePositionTime < VAGUE_POSITION_MAX_AGE ? _vaguePosition : (_enemy != null ? _enemy.EnemyPosition : from));
         Vector3 away = from - shotArea;
         away.y = 0f;
         if (away.sqrMagnitude < 1f)
@@ -3911,7 +3928,7 @@ public class ShotReactionClass : BotComponentClassBase
         bool close = IsCloseRange(distance);
         if (!_hurtPending)
         {
-            if (now < _nextHurtRoll || (!enemy.IsVisible && _duelHits.Count == 0))
+            if (now < _nextHurtRoll || !IsEngaged(now))
             {
                 return;
             }
@@ -3968,7 +3985,9 @@ public class ShotReactionClass : BotComponentClassBase
         _avoidDistance = close ? Mathf.Max(fork.ShotHurtAvoidDistance, 0f) : 0f;
         // At close range the way out must also end out of the player's sight (no running into the open); with none the bot stays and fights.
         _requireHidden = close && fork.ShotHurtCloseNeedsHidden;
+        _knownThreat = IsEngaged(now) ? enemy.EnemyPosition : null;
         bool started = TryStartRelocating(ScaledRelocateDistance(mult));
+        _knownThreat = null;
         _avoidDistance = 0f;
         _requireHidden = false;
         if (started)
@@ -4023,7 +4042,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         if (!_squadClosePending)
         {
-            if (_squadLossCloseHandled || (!enemy.IsVisible && _duelHits.Count == 0))
+            if (_squadLossCloseHandled || !IsEngaged(now))
             {
                 return;
             }
@@ -4485,6 +4504,7 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         _duelHits.Enqueue(Time.time);
+        _lastDuelHitTime = Time.time;
         // A sniper or marksman that is spotted and shot at wants to leave (a sniper position is only worth something unseen), but not every time: each hit or close bullet
         // is a roll, weighted by the bot's resolve (personality, equipment, health, squad) and the distance, and earlier exposures add to the next roll.
         if (_duelSeen > 0f && !_duelForceLeave && IsLongRifle())
@@ -4649,7 +4669,10 @@ public class ShotReactionClass : BotComponentClassBase
         int missed = _duelBursts.Count;
         float mult = Mathf.Min((fork.ShotDuelDistanceMult * Mathf.Lerp(1.4f, 0.7f, resolve) * (1f + (pull * 0.5f))) + (_duelRepeats * 0.5f), Mathf.Max(fork.ShotDuelDistanceMult, fork.ShotDuelDistanceMultMax));
 
-        if (TryStartRelocating(ScaledRelocateDistance(mult)))
+        _knownThreat = IsEngaged(now) ? enemy.EnemyPosition : null;
+        bool duelStarted = TryStartRelocating(ScaledRelocateDistance(mult));
+        _knownThreat = null;
+        if (duelStarted)
         {
             _duelCooldownUntil = now + fork.ShotDuelCooldown;
             _duelSeen = 0f;
