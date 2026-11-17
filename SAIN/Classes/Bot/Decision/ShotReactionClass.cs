@@ -3944,14 +3944,14 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         _hurtPending = false;
-        BreakOff(enemy, now, close, close ? fork.ShotHurtCloseDistanceMult : fork.ShotHurtDistanceMult, "to heal", true);
+        BreakOff(enemy, now, close, close ? fork.ShotHurtCloseDistanceMult : fork.ShotHurtDistanceMult, "to heal", true, WaitNote(now, _hurtPendingSince));
     }
 
     /// <summary>
     /// A break-off retreat out of the player's sight (hurt, or after a squadmate was killed). At close range it goes a short way and the path must not pass within ShotHurtAvoidDistance
     /// of the player; with no such way out (trapped) the bot stays and fights. Holds at least ShotHurtMinHold seconds when hurt, else the long retreat hold.
     /// </summary>
-    private bool BreakOff(Enemy enemy, float now, bool close, float mult, string why, bool hurt)
+    private bool BreakOff(Enemy enemy, float now, bool close, float mult, string why, bool hurt, string waitNote)
     {
         ForkSettings fork = GlobalSettings.Fork;
         _enemy = enemy;
@@ -3967,13 +3967,21 @@ public class ShotReactionClass : BotComponentClassBase
             _duelBursts.Clear();
             _longRetreat = true;
             _hurtLeave = hurt;
-            LogEvent($"breaks off {why}: retreats, distance x{mult:0.0}{(close ? " (close range, a way out that does not pass the player)" : "")}");
+            LogEvent($"breaks off {why}: retreats, distance x{mult:0.0}{(close ? " (close range, a way out that does not pass the player)" : "")}, {waitNote}");
             return true;
         }
         _forcedRetreat = false;
         _hurtCooldownUntil = now + 20f;
         LogEvent($"breaks off {why}: no way out{(close ? " that does not pass the player" : "")}, stays and fights");
         return false;
+    }
+
+    /// <summary>For the log: how long the break-off waited for a pause in the fire, and whether it went anyway in the middle of a burst after the wait cap.</summary>
+    private string WaitNote(float now, float since)
+    {
+        ShootData fireData = Bot.BotOwner.ShootData;
+        bool firing = fireData != null && now - fireData.LastTriggerPressd < GlobalSettings.Fork.ShotDuelBurstGap;
+        return $"waited {now - since:0.0} s for a pause{(firing ? ", went mid-burst after the wait cap" : "")}";
     }
 
     private bool _squadClosePending;
@@ -4026,7 +4034,7 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         _squadClosePending = false;
-        BreakOff(enemy, now, true, fork.ShotHurtCloseDistanceMult, "after a squadmate was killed", false);
+        BreakOff(enemy, now, true, fork.ShotHurtCloseDistanceMult, "after a squadmate was killed", false, WaitNote(now, _squadClosePendingSince));
     }
     private float _duelDueSince = -1f;
 
