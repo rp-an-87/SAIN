@@ -216,6 +216,10 @@ public class SAINCoverClass : BotComponentClassBase
             LogNoCover($"cover search: none of {CoverPoints.Count} cover points is usable");
             return null;
         }
+        if (!filterBushes())
+        {
+            return null;
+        }
         filterForReloadRelocation();
         filterAwayFromShot();
         filterTowardArea();
@@ -268,6 +272,146 @@ public class SAINCoverClass : BotComponentClassBase
         LogNoCover($"cover search: no reachable cover among {_coverPoints.Count} candidates");
         //Logger.LogWarning($"[{Bot.name}] No Cover Point found, even though there are {_coverPoints.Count} cover points available.");
         return null;
+    }
+
+    // ---- Combat cover: bushes (Fork Tweaks > Combat Cover) ----
+
+    private static float _seasonBanCheckTime = -10f;
+    private static bool _seasonBan;
+
+    /// <summary>Fork: true if this raid's season has its "No Bushes In ..." switch on (foliage thin or gone): no bot uses a bush as cover at all.</summary>
+    public static bool BushesBannedBySeason()
+    {
+        float now = Time.time;
+        if (now >= _seasonBanCheckTime && now - _seasonBanCheckTime < 2f)
+        {
+            return _seasonBan;
+        }
+        _seasonBanCheckTime = now;
+        ISeasonsController controller = Seasons.Controller;
+        ESeason season = controller != null ? controller.Season : ESeason.Summer;
+        ForkSettings fork = GlobalSettingsClass.Instance.Fork;
+        switch (season)
+        {
+            case ESeason.Autumn:
+                _seasonBan = fork.NoBushesAutumn;
+                break;
+            case ESeason.AutumnLate:
+                _seasonBan = fork.NoBushesAutumnLate;
+                break;
+            case ESeason.Winter:
+                _seasonBan = fork.NoBushesWinter;
+                break;
+            case ESeason.SpringEarly:
+                _seasonBan = fork.NoBushesSpringEarly;
+                break;
+            case ESeason.Spring:
+                _seasonBan = fork.NoBushesSpring;
+                break;
+            default:
+                _seasonBan = fork.NoBushesSummer;
+                break;
+        }
+        return _seasonBan;
+    }
+
+    /// <summary>Fork: the player has met this bot (the bot saw the player, or was shot at or near by them, within the memory time): a bush gives no surprise any more.</summary>
+    private static bool CombatBushBanActive(Enemy enemy)
+    {
+        ForkSettings fork = GlobalSettingsClass.Instance.Fork;
+        if (!fork.CombatBushBan || enemy == null || enemy.IsAI)
+        {
+            return false;
+        }
+        float memory = fork.CombatBushMemory;
+        if (enemy.Seen && enemy.TimeSinceSeen <= memory)
+        {
+            return true;
+        }
+        var status = enemy.Status;
+        float now = Time.time;
+        return (status.TimeLastShotAtMe >= 0f && now - status.TimeLastShotAtMe <= memory) || (status.TimeLastShotMe >= 0f && now - status.TimeLastShotMe <= memory);
+    }
+
+    /// <summary>True if no bush may be used by this bot right now (season ban or combat ban). The view test is per bush, see filterBushes.</summary>
+    public bool BushBanNow()
+    {
+        return BushesBannedBySeason() || CombatBushBanActive(Bot.GoalEnemy);
+    }
+
+    private const float BUSH_VIEW_DOT = 0.64f;
+    private const float BUSH_VIEW_MAX_DISTANCE = 150f;
+
+    /// <summary>The bush is within about 50 degrees of where the player looks, with no terrain or solid collider in between.</summary>
+    private static bool BushInPlayerView(CoverPoint point, Enemy enemy)
+    {
+        var transform = enemy.EnemyTransform;
+        Vector3 to = point.Position + (Vector3.up * 0.5f) - transform.EyePosition;
+        float distance = to.magnitude;
+        if (distance < 1f)
+        {
+            return true;
+        }
+        if (distance > BUSH_VIEW_MAX_DISTANCE || Vector3.Dot(to / distance, transform.LookDirection) < BUSH_VIEW_DOT)
+        {
+            return false;
+        }
+        return !BlocksSight(enemy.EnemyPosition, point.Position);
+    }
+
+    private float _nextBushLogTime;
+
+    private void LogBushBan(string message)
+    {
+        if (_nextBushLogTime > Time.time || !GlobalSettingsClass.Instance.Fork.ShotReactionLog)
+        {
+            return;
+        }
+        _nextBushLogTime = Time.time + 1f;
+        Logger.LogInfoAlways($"[CombatCover] t={Time.time:0.0} {Bot.ShotReaction.Tag}: {message}");
+    }
+
+    /// <summary>
+    /// Fork: removes the bushes this bot may not pick now from the candidates: all of them in a banned season, all of them once the player has met the bot,
+    /// and the ones in the player's view otherwise. False = nothing was left (no cover: the caller returns none).
+    /// </summary>
+    private bool filterBushes()
+    {
+        if (_coverPoints.Count == 0)
+        {
+            return true;
+        }
+        ForkSettings fork = GlobalSettingsClass.Instance.Fork;
+        bool season = BushesBannedBySeason();
+        Enemy enemy = Bot.GoalEnemy;
+        bool combat = !season && CombatBushBanActive(enemy);
+        bool view = !season && !combat && fork.CombatBushBan && fork.CombatBushView && enemy != null && !enemy.IsAI;
+        if (!season && !combat && !view)
+        {
+            return true;
+        }
+        int removed = 0;
+        for (int i = _coverPoints.Count - 1; i >= 0; i--)
+        {
+            CoverPoint point = _coverPoints[i];
+            if (IsFoliage(point) && (season || combat || BushInPlayerView(point, enemy)))
+            {
+                _coverPoints.RemoveAt(i);
+                removed++;
+            }
+        }
+        if (removed == 0)
+        {
+            return true;
+        }
+        string why = season ? "season has no foliage" : combat ? "the player has met the bot" : "in the player's view";
+        if (_coverPoints.Count == 0)
+        {
+            LogBushBan($"bushes banned ({why}): {removed} candidate(s) dropped, no cover left (no-cover behaviour instead)");
+            return false;
+        }
+        LogBushBan($"bushes banned ({why}): {removed} bush candidate(s) dropped, {_coverPoints.Count} left");
+        return true;
     }
 
     /// <summary>A cover on the Foliage layer counts as this many metres further away than it is (see FindCoverPoint).</summary>
@@ -503,12 +647,14 @@ public class SAINCoverClass : BotComponentClassBase
         bool any = false;
         bool anySolid = false;
         bool inFoliage = IsFoliage(CoverInUse);
+        bool bushBan = BushBanNow();
         foreach (CoverPoint point in CoverPoints)
         {
             if (
                 point != null
                 && !point.CoverData.IsBad
                 && point != CoverInUse
+                && !(bushBan && IsFoliage(point))
                 && (point.Position - CoverInUse.Position).sqrMagnitude >= minFromOld * minFromOld
                 && Vector3.Distance(point.Position, shotArea) >= botDistance
             )
@@ -770,6 +916,19 @@ public class SAINCoverClass : BotComponentClassBase
         }
 
         _timeLastUpdate = Time.time;
+
+        if (BushesBannedBySeason())
+        {
+            if (IsFoliage(CoverInUse))
+            {
+                LogBushBan("season has no foliage: leaving the bush it held");
+                CoverInUse = null;
+            }
+            if (IsFoliage(CoverPoint_MovingTo))
+            {
+                CoverPoint_MovingTo = null;
+            }
+        }
 
         _shallSprint = CheckStartRun(enemy, out string reason);
         if (reason != _lastSprintReason)

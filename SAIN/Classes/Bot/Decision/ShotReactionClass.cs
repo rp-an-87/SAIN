@@ -2337,7 +2337,8 @@ public class ShotReactionClass : BotComponentClassBase
         {
             return;
         }
-        if (IsCloseRange(distance))
+        // A bush stops nothing even at point blank: a bot in one still leaves it when shot at (Combat Cover: Leave Bush At Close Range).
+        if (IsCloseRange(distance) && !(GlobalSettings.Fork.CombatBushLeaveClose && Bot.Cover.InFoliageCover))
         {
             // Point blank: hopping from cover to cover would mean never shooting back. The bot holds and fires (see AllowsSuppress).
             if (now >= _nextCloseLog)
@@ -3175,12 +3176,17 @@ public class ShotReactionClass : BotComponentClassBase
             _destMask = (1 << LayerMask.NameToLayer("HighPolyCollider")) | (1 << LayerMask.NameToLayer("Foliage"));
         }
         int foliageLayer = LayerMask.NameToLayer("Foliage");
+        bool bushBan = Bot.Cover.BushBanNow();
         int count = Physics.OverlapSphereNonAlloc(point, DESTINATION_COVER_RADIUS, _destColliders, _destMask);
         float best = 0f;
         for (int i = 0; i < count; i++)
         {
             Collider collider = _destColliders[i];
             if (collider == null)
+            {
+                continue;
+            }
+            if (bushBan && collider.gameObject.layer == foliageLayer)
             {
                 continue;
             }

@@ -6,7 +6,7 @@ namespace SAIN.Preset.Shared.GlobalSettings.Categories;
 
 /// <summary>
 /// Settings for behavior that only exists in this fork. Menu layout: Category = "Section/Subsection", drawn in the order of declaration.
-/// Sections: Shot Reaction (several, by topic), Duel, Rogue Behaviour, then Range, Reload and Doors. Every description ends with "Related:" (what else the setting touches).
+/// Sections: Shot Reaction (several, by topic), Duel, Rogue Behaviour, then Range, Reload, Doors and Combat Cover. Every description ends with "Related:" (what else the setting touches).
 /// Defaults are the owner's values (No Bullshit preset).
 /// </summary>
 [DataContract]
@@ -2461,6 +2461,67 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("The same for a bot with a marksman or sniper rifle, which fires slowly: a longer downtime between shots does not end the duel. Never shorter than Duel Forgotten After. Related: Duel Weight settings, Duel Forgotten After.")]
     [MinMax(3f, 180f, 1f)]
     public float ShotDuelResetTimeLongRifle = 30f;
+
+    [DataMember]
+    [Category("Combat Cover/Bushes")]
+    [Name("Bush Ban In Combat")]
+    [Description("A bush hides a bot but stops nothing, and it is only a surprise while the player has not met the bot. With this on, a bot does not pick a bush as cover once the player has met it (it saw the player within Bush Ban Memory) or shot at or near it within that time. If only bushes are left it has no cover and falls back to the normal no-cover behaviour (a shot reaction decides fight or flight). Off = bushes are only penalised, as before. Related: Bush Ban Memory, Bush In Player View; the Shot Reaction: Cover > Cover choice bush settings (path penalty, fade distances) still apply to bushes that are allowed.")]
+    public bool CombatBushBan = true;
+
+    [DataMember]
+    [Category("Combat Cover/Bushes")]
+    [Name("Bush Ban Memory (s)")]
+    [Description("How long after the bot last saw the player, or was shot at or near by them, bushes stay banned for it. Related: Bush Ban In Combat.")]
+    [MinMax(0f, 120f, 1f)]
+    public float CombatBushMemory = 10f;
+
+    [DataMember]
+    [Category("Combat Cover/Bushes")]
+    [Name("Bush In Player View")]
+    [Description("A bush the player is looking toward (within about 50 degrees of where they aim) with a clear line to it counts as watched and is not picked, even if the player has not spotted the bot. A bush behind the player or behind a wall is still allowed. Only against a player enemy. Related: Needs Bush Ban In Combat; works with Bush Ban Memory.")]
+    public bool CombatBushView = true;
+
+    [DataMember]
+    [Category("Combat Cover/Leaving a bush")]
+    [Name("Leave Bush At Close Range")]
+    [Description("A bot in a bush that is shot at or near by the player at close range leaves for other cover instead of holding and firing back: the bush stops nothing. Without this, the close-range rule of the shot reaction (hold cover and fire back) also keeps a bot in a bush. Related: Part of the self-preservation move of the shot reaction (Shot Reaction: Cover); needs Shot Reaction on. Skipped when no other cover exists.")]
+    public bool CombatBushLeaveClose = true;
+
+    [DataMember]
+    [Category("Combat Cover/Seasons")]
+    [Name("No Bushes In Summer")]
+    [Description("Never use bushes as cover in a Summer raid (any bot, any situation, including the shot reaction). A bot already in one leaves. Related: The other seasons below; bushes in the other situations are handled by Bush Ban In Combat.")]
+    public bool NoBushesSummer = false;
+
+    [DataMember]
+    [Category("Combat Cover/Seasons")]
+    [Name("No Bushes In Autumn")]
+    [Description("Never use bushes as cover in an Autumn raid (the foliage is thin). A bot already in one leaves. Related: The other seasons.")]
+    public bool NoBushesAutumn = true;
+
+    [DataMember]
+    [Category("Combat Cover/Seasons")]
+    [Name("No Bushes In Late Autumn")]
+    [Description("Never use bushes as cover in a Late Autumn raid. A bot already in one leaves. Related: The other seasons.")]
+    public bool NoBushesAutumnLate = true;
+
+    [DataMember]
+    [Category("Combat Cover/Seasons")]
+    [Name("No Bushes In Winter")]
+    [Description("Never use bushes as cover in a Winter raid (the foliage is gone). A bot already in one leaves. Related: The other seasons.")]
+    public bool NoBushesWinter = true;
+
+    [DataMember]
+    [Category("Combat Cover/Seasons")]
+    [Name("No Bushes In Early Spring")]
+    [Description("Never use bushes as cover in an Early Spring raid (the foliage is still bare). A bot already in one leaves. Related: The other seasons.")]
+    public bool NoBushesSpringEarly = true;
+
+    [DataMember]
+    [Category("Combat Cover/Seasons")]
+    [Name("No Bushes In Spring")]
+    [Description("Never use bushes as cover in a Spring raid. A bot already in one leaves. Related: The other seasons.")]
+    public bool NoBushesSpring = false;
 
     public override void Init(List<ISAINSettings> list)
     {
