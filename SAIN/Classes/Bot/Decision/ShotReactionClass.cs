@@ -3925,6 +3925,7 @@ public class ShotReactionClass : BotComponentClassBase
     private float _duelSeen;
     private float _duelTarget = 30f;
     private float _duelLastSeen;
+    private string _duelSource = "firing";
     private float _duelLastCheck;
     private float _nextDuelCheck;
     private float _duelCooldownUntil;
@@ -4367,6 +4368,16 @@ public class ShotReactionClass : BotComponentClassBase
         _squadClosePending = false;
     }
 
+    private string DuelWhat()
+    {
+        return _duelSource == "firing" ? "seen firing" : $"in combat ({_duelSource})";
+    }
+
+    private string DuelHas()
+    {
+        return _duelSource == "firing" ? "has been firing at the player" : $"has been in combat with the player ({_duelSource})";
+    }
+
     private void DuelLog(float now, string note, Enemy enemy, float resolve, float pull)
     {
         if (!GlobalSettings.Fork.ShotDuelLog || now < _nextDuelLog)
@@ -4376,7 +4387,7 @@ public class ShotReactionClass : BotComponentClassBase
         _nextDuelLog = now + 15f;
         float distance = enemy != null ? enemy.RealDistance : 0f;
         float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
-        LogEvent($"duel clock: seen firing {_duelSeen:0} s of {_duelTarget:0} s, {note}, resolve {resolve:0.00}, pull {pull:0.00} ({_duelBursts.Count} missed bursts, {_duelHits.Count} hits or close bullets), weapon {Bot.Info.WeaponInfo.EWeaponClass} x{DuelWeaponWeight():0.#}, player at {distance:0} m ({distance / reach * 100f:0}% of reach)");
+        LogEvent($"duel clock: {DuelWhat()} {_duelSeen:0} s of {_duelTarget:0} s, {note}, resolve {resolve:0.00}, pull {pull:0.00} ({_duelBursts.Count} missed bursts, {_duelHits.Count} hits or close bullets), weapon {Bot.Info.WeaponInfo.EWeaponClass} x{DuelWeaponWeight():0.#}, player at {distance:0} m ({distance / reach * 100f:0}% of reach)");
     }
 
     /// <summary>
@@ -4794,16 +4805,36 @@ public class ShotReactionClass : BotComponentClassBase
             _duelBursts.Clear();
             return;
         }
-        // The duel clock runs while the bot sees the player and is firing (a trigger pull in the last few seconds); a hit by the bot on the player resets it.
+        // The duel clock runs while the bot is in combat with the player: it sees him and is firing (a trigger pull in the last few seconds); or, while the shot reaction is not
+        // managing the bot (the two never overlap), he hit it or put a bullet close to it in the last 10 s and it has visuals on him (sees him or saw him in the last 8 s: a bot that
+        // never saw him is the shot reaction's), or it sees him but cannot hit him (out of reach, not firing: faster). A hit by the bot on the player resets it.
         ShootData shootData = Bot.BotOwner.ShootData;
         bool firing = shootData != null && now - shootData.LastTriggerPressd < 8f;
+        string source = null;
+        float tickRate = 1f;
         if (enemy.IsVisible && firing)
+        {
+            source = "firing";
+        }
+        else if (fork.ShotDuelTicksInCombat && !InReaction)
+        {
+            if (enemy.IsVisible && enemy.RealDistance > Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f))
+            {
+                source = "cannot reach";
+                tickRate = Mathf.Max(1f, fork.ShotDuelCantReachSpeed);
+            }
+            else if (now - _lastDuelHitTime < 10f && KnowsPosition(enemy, out _))
+            {
+                source = "engaged by shots";
+            }
+        }
+        if (source != null)
         {
             if (_duelSeen <= 0f)
             {
                 _duelBase = Random.Range(fork.ShotDuelTimeMin, Mathf.Max(fork.ShotDuelTimeMin, fork.ShotDuelTimeMax));
                 _duelBursts.Clear();
-                _duelLastTrigger = shootData.LastTriggerPressd;
+                _duelLastTrigger = shootData != null ? shootData.LastTriggerPressd : -999f;
                 _duelFlavor = Random.Range(-fork.ShotDuelFlavor, fork.ShotDuelFlavor);
                 _duelExposure = 0f;
                 _duelForceLeave = false;
@@ -4814,7 +4845,8 @@ public class ShotReactionClass : BotComponentClassBase
                     LogEvent($"duel clock starts: weapon {Bot.Info.WeaponInfo.EWeaponClass}, player at {enemy.RealDistance:0} m, base time {_duelBase:0} s");
                 }
             }
-            _duelSeen = Mathf.Min(_duelSeen + dt, 600f);
+            _duelSource = source;
+            _duelSeen = Mathf.Min(_duelSeen + (dt * tickRate), 600f);
             _duelLastSeen = now;
         }
         else if (now - _duelLastSeen > DuelResetTime())
@@ -4871,10 +4903,10 @@ public class ShotReactionClass : BotComponentClassBase
         }
         // Push or leave: a chance that grows with the resolve and falls with the pull, then a small flavor flip, so it is never fully predictable.
         float pushChance = Mathf.Clamp01(Mathf.InverseLerp(fork.ShotDuelPushResolve - 0.15f, fork.ShotDuelPushResolve + 0.15f, resolve)) * (1f - Mathf.Clamp01(pull / 0.3f));
-        bool push = !forced && distance <= reachNow && Random.value < pushChance;
+        bool push = !forced && distance <= reachNow && KnowsPosition(enemy, out _) && Random.value < pushChance;
         if (!forced && Random.value < fork.ShotDuelFlavor * 0.6f)
         {
-            push = !push && distance <= reachNow;
+            push = !push && distance <= reachNow && KnowsPosition(enemy, out _);
         }
         if (push)
         {
@@ -4915,7 +4947,7 @@ public class ShotReactionClass : BotComponentClassBase
             _duelRepeats++;
             _lastDuelRetreat = now;
             _longRetreat = true;
-            LogEvent($"duel retreat{(forced ? $" ({_duelForceReason})" : "")}: has been firing at the player for {seen:0} s without hitting it (limit {_duelTarget:0} s), {hits} hits or close bullets on it in {fork.ShotDuelWindow:0} s, player at {distance:0} m, resolve {resolve:0.00}, pull {pull:0.00} ({missed} missed bursts), retreat distance x{mult:0.0} (repeat {_duelRepeats})");
+            LogEvent($"duel retreat{(forced ? $" ({_duelForceReason})" : "")}: {DuelHas()} for {seen:0} s without hitting it (limit {_duelTarget:0} s), {hits} hits or close bullets on it in {fork.ShotDuelWindow:0} s, player at {distance:0} m, resolve {resolve:0.00}, pull {pull:0.00} ({missed} missed bursts), retreat distance x{mult:0.0} (repeat {_duelRepeats})");
             return;
         }
         _forcedRetreat = false;

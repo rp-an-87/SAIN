@@ -2463,6 +2463,19 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public float ShotDuelResetTimeLongRifle = 30f;
 
     [DataMember]
+    [Category("Duel/Clock")]
+    [Name("Duel Ticks In Combat")]
+    [Description("The duel clock also runs when the bot is in combat with the player without firing at him: the player hit it or put a bullet close to it in the last 10 s while it sees him or saw him in the last 8 s, or it sees him but cannot hit him (out of weapon reach and not firing; that runs faster, see Duel Cannot-Reach Speed). Only while the shot reaction is not managing the bot, so the two never overlap. A bot that never saw the player stays with the shot reaction alone. Off = the clock only runs while the bot sees the player and fires. Related: Needs the duel retreat switched on; the limit, resolve and pull settings apply as before.")]
+    public bool ShotDuelTicksInCombat = true;
+
+    [DataMember]
+    [Category("Duel/Clock")]
+    [Name("Duel Cannot-Reach Speed")]
+    [Description("How much faster the duel clock runs while the bot sees the player, is out of weapon reach and is not firing (1 = normal speed). Related: Duel Ticks In Combat.")]
+    [MinMax(1f, 4f, 10f)]
+    public float ShotDuelCantReachSpeed = 1.5f;
+
+    [DataMember]
     [Category("Combat Cover/Bushes")]
     [Name("Bush Ban In Combat")]
     [Description("A bush hides a bot but stops nothing, and it is only a surprise while the player has not met the bot. With this on, a bot does not pick a bush as cover once the player has met it (it saw the player within Bush Ban Memory) or shot at or near it within that time. If only bushes are left it has no cover and falls back to the normal no-cover behaviour (a shot reaction decides fight or flight). Off = bushes are only penalised, as before. Related: Bush Ban Memory, Bush In Player View; the Shot Reaction: Cover > Cover choice bush settings (path penalty, fade distances) still apply to bushes that are allowed.")]
