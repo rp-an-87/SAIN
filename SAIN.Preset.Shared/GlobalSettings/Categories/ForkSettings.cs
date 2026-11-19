@@ -2468,6 +2468,12 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("Vanilla: while Tagilla waits in ambush he picks the nearest non-scav enemy, but only real players count, so an AI PMC shooting him is never chosen and he keeps running at the player. On = AI PMCs count too (scavs still never do). Off = vanilla. Related: none; affects only Tagilla's ambush choice.")]
     public bool BossFeelIncludesAI = true;
 
+    [DataMember]
+    [Category("Boss Behaviour")]
+    [Name("BTR: Not Enemy Of PMCs")]
+    [Description("Vanilla: every newly spawned bot is made an enemy of all groups of another side without the friend check, so PMC bots attack the BTR even though pmc.json lists it as friendly. On = the BTR is skipped there when the group's friendly list says so (a PMC it really shoots can still turn on it). Off = vanilla. Related: none; affects only the BTR.")]
+    public bool BtrNotEnemyOfPmcs = true;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);

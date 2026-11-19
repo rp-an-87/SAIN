@@ -61,3 +61,47 @@ public class TagillaFeelIncludesAI_Patch : ModulePatch
         return player.IsAI;
     }
 }
+
+/// <summary>
+/// Fork: BotZoneGroups.AddBot makes every newly spawned bot an enemy of all groups of another side (causes addBotAtGroup, addBotNoGroup, initCauseEnemy) without asking
+/// BotsGroup.IsPlayerEnemy. The BTR bot (shooterBTR, Savage side) therefore becomes an enemy of every PMC group at spawn, whatever pmc.json lists as friendly.
+/// With BtrNotEnemyOfPmcs those adds are skipped when IsPlayerEnemy says the group should not hostile the BTR (friendly list), and the BTR goes on the neutral list.
+/// Other causes (a PMC actually shot by the BTR, etc.) are untouched.
+/// </summary>
+public class BtrNotEnemyOfGroups_Patch : ModulePatch
+{
+    protected override MethodBase GetTargetMethod()
+    {
+        return AccessTools.Method(typeof(BotsGroup), nameof(BotsGroup.AddEnemy));
+    }
+
+    [PatchPrefix]
+    public static bool PatchPrefix(BotsGroup __instance, IPlayer person, EBotEnemyCause cause, ref bool __result)
+    {
+        if (cause != EBotEnemyCause.addBotAtGroup && cause != EBotEnemyCause.addBotNoGroup && cause != EBotEnemyCause.initCauseEnemy)
+        {
+            return true;
+        }
+        var settings = SAINPlugin.LoadedPreset?.GlobalSettings?.Fork;
+        if (settings == null || !settings.BtrNotEnemyOfPmcs)
+        {
+            return true;
+        }
+        if (person == null || !person.IsAI)
+        {
+            return true;
+        }
+        var owner = person.AIData?.BotOwner;
+        if (owner == null || owner.Profile?.Info?.Settings?.Role != WildSpawnType.shooterBTR)
+        {
+            return true;
+        }
+        if (__instance.IsPlayerEnemy(person))
+        {
+            return true;
+        }
+        __instance.AddNeutral(person);
+        __result = false;
+        return false;
+    }
+}
