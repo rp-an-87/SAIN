@@ -3489,6 +3489,7 @@ public class ShotReactionClass : BotComponentClassBase
             Bot.Cover.ClearShotState();
             _postRetreat = false;
             Relocating = true;
+            _stallRefTime = -1f;
             _retreatStarted = Time.time;
             _relocateEnd = Time.time + fork.ShotRelocateTimeMax;
             Outcome = EShotReaction.None;
@@ -3622,17 +3623,52 @@ public class ShotReactionClass : BotComponentClassBase
         return score;
     }
 
+    private float _stallRefTime = -1f;
+    private Vector3 _stallRefPos;
+
+    /// <summary>
+    /// True when the retreating bot has stayed within Min Progress of a reference point for Stall Time seconds (the reference moves with it whenever it makes progress).
+    /// The note says how far it moved, how far the target still is and what the bot sees, for the one log line.
+    /// </summary>
+    private bool IsRetreatStalled(Enemy enemy, float now, out string note)
+    {
+        note = null;
+        ForkSettings fork = GlobalSettings.Fork;
+        if (fork.ShotRetreatStallTime <= 0f)
+        {
+            return false;
+        }
+        Vector3 position = Bot.Position;
+        float minProgress = fork.ShotRetreatStallMinProgress;
+        if (_stallRefTime < 0f || (position - _stallRefPos).sqrMagnitude >= minProgress * minProgress)
+        {
+            _stallRefTime = now;
+            _stallRefPos = position;
+            return false;
+        }
+        if (now - _stallRefTime < fork.ShotRetreatStallTime)
+        {
+            return false;
+        }
+        note = $"stalled (moved {Vector3.Distance(position, _stallRefPos):0.0} m in {now - _stallRefTime:0} s, {Vector3.Distance(position, RelocatePoint):0} m from the target, "
+            + $"visible {enemy.IsVisible}, can shoot {enemy.CanShoot}, player at {enemy.RealDistance:0} m)";
+        return true;
+    }
+
     private bool ContinueRelocating(Enemy enemy)
     {
         float now = Time.time;
         bool arrived = (Bot.Position - RelocatePoint).sqrMagnitude < RELOCATE_ARRIVED_DISTANCE * RELOCATE_ARRIVED_DISTANCE;
         // A duel retreat goes on although the bot sees the player (that is the whole point of it).
         bool sees = !_forcedRetreat && SeesShooter(enemy) && enemy.CanShoot;
-        if (now >= _relocateEnd || arrived || sees || !Enabled)
+        // Fork: a retreat that makes no progress (stuck on a path, blocked) ends instead of running to the time limit with the bot standing still.
+        string stallNote = null;
+        bool stalled = !arrived && !sees && IsRetreatStalled(enemy, now, out stallNote);
+        if (now >= _relocateEnd || arrived || sees || stalled || !Enabled)
         {
-            string why = now >= _relocateEnd ? "time limit" : arrived ? "arrived" : !Enabled ? "switched off" : "the bot sees the shooter";
+            string why = now >= _relocateEnd ? "time limit" : arrived ? "arrived" : !Enabled ? "switched off" : stalled ? stallNote : "the bot sees the shooter";
             StopRelocating(now, why);
-            if (Enabled && (arrived || now >= _relocateEnd) && !sees)
+            if (Enabled && (arrived || now >= _relocateEnd || stalled) && !sees)
             {
                 StartPostRetreat(enemy, now);
             }

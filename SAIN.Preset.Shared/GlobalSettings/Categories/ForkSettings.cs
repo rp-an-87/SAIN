@@ -2523,6 +2523,20 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [Description("Never use bushes as cover in a Spring raid. A bot already in one leaves. Related: The other seasons.")]
     public bool NoBushesSpring = false;
 
+    [DataMember]
+    [Category("Combat Cover/Stalled retreat")]
+    [Name("Retreat Stall Time (s)")]
+    [Description("A bot on a retreat (the flight after a shot, a duel retreat or a pressure retreat) that has moved less than Min Progress for this long, and is not at its target, ends the retreat as stalled: it takes the nearest cover and holds it, as after an arrival, and normal combat takes over. 0 = off (a stuck retreat runs until Shot Relocate Time Max). Related: Retreat Stall Min Progress; logged as 'relocation over: stalled'.")]
+    [MinMax(0f, 30f, 1f)]
+    public float ShotRetreatStallTime = 6f;
+
+    [DataMember]
+    [Category("Combat Cover/Stalled retreat")]
+    [Name("Retreat Stall Min Progress (m)")]
+    [Description("How far (meters) a retreating bot must move within Retreat Stall Time to count as making progress. Related: Retreat Stall Time.")]
+    [MinMax(0.5f, 10f, 10f)]
+    public float ShotRetreatStallMinProgress = 2f;
+
     public override void Init(List<ISAINSettings> list)
     {
         list.Add(this);
