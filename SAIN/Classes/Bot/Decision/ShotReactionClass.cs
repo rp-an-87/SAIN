@@ -352,7 +352,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         _lastDegradeTime = now;
 
-        float uncertainty = Shrunk(ComputeUncertainty(enemy.EnemyPlayer, distance, hit, enemy), FloorAt(fork.AreaFloorOuter, distance, enemy), NoteInformation(now));
+        float uncertainty = Shrunk(ComputeUncertainty(enemy.EnemyPlayer, distance, hit, enemy), NoteInformation(now, PieceWeight(hit)));
         float radius = Mathf.Max(Mathf.Min(uncertainty, ErrorCeiling(fork)), fork.ShotPositionErrorMin);
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 point = SnapKeepingRing(enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y), enemy.EnemyPosition, radius * fork.ShotAreaInnerFraction, radius);
@@ -558,6 +558,7 @@ public class ShotReactionClass : BotComponentClassBase
     private float _dbgEnv;
     private float _dbgConc;
     private float _dbgTracer;
+    private float _dbgTracerProgress;
     private int _dbgShooterEnv;
     private int _dbgBotEnv;
 
@@ -588,7 +589,7 @@ public class ShotReactionClass : BotComponentClassBase
         _dbgAud = AudibilityErrorFactor(shooter, distance);
         _dbgEnv = EnvironmentErrorFactor(shooter, distance);
         _dbgConc = ConcealmentErrorFactor(shooter, distance);
-        _dbgTracer = TracerRamp(shooter, out _);
+        _dbgTracer = TracerRamp(shooter, out _dbgTracerProgress);
         float uncertainty = baseUncertainty * (hit ? fork.ShotHitErrorFactor : 1f) * _dbgAud * _dbgEnv * _dbgConc * _dbgTracer;
         return SoftCap(uncertainty);
     }
@@ -657,6 +658,8 @@ public class ShotReactionClass : BotComponentClassBase
     private sealed class KnowState
     {
         public int Count;
+        /// <summary>Weighted pieces beyond the first: the exponent of the shrink (the first piece never narrows).</summary>
+        public float Extra;
         public float LastCount = -999f;
         public float LastInfo = -999f;
     }
@@ -711,7 +714,7 @@ public class ShotReactionClass : BotComponentClassBase
     /// and the count is forgotten after the memory time without any. The count belongs to the bot's squad (every member narrows at once); a Rogue or Goon also hands it to
     /// the Rogues and Goons close to it. Returns the shrink factor for areas made now (1 for the first piece).
     /// </summary>
-    private float NoteInformation(float now)
+    private float NoteInformation(float now, float weight = 1f)
     {
         ForkSettings fork = GlobalSettings.Fork;
         float shrink = Mathf.Clamp(fork.AreaShrink, 0.1f, 1f);
@@ -723,19 +726,53 @@ public class ShotReactionClass : BotComponentClassBase
         if (now - state.LastInfo > fork.AreaMemory)
         {
             state.Count = 0;
+            state.Extra = 0f;
         }
         state.LastInfo = now;
-        if (state.Count == 0 || now - state.LastCount >= fork.AreaShrinkCooldown)
+        // Sustained tracer fire cuts the cooldown, so a burst of tracers counts as several pieces.
+        float cooldown = fork.AreaShrinkCooldown * (1f - Mathf.Clamp01(fork.AreaTracerCooldownCut) * _dbgTracerProgress);
+        if (state.Count == 0 || now - state.LastCount >= cooldown)
         {
             state.Count++;
+            if (state.Count >= 2)
+            {
+                state.Extra += weight;
+            }
             state.LastCount = now;
             ShareWithNeighbors(state, now);
             if (state.Count >= 2 && (state.Count <= 3 || state.Count % 5 == 0))
             {
-                LogEvent($"more information about the player's position: piece #{state.Count}, areas now x{Mathf.Pow(shrink, state.Count - 1):0.00} (floor {fork.AreaFloorOuter:0} m)");
+                LogEvent($"more information about the player's position: piece #{state.Count} (weight {weight:0.00}), areas now x{Mathf.Pow(shrink, state.Extra):0.00} (floor {FloorFraction() * 100f:0}% of the error)");
             }
         }
-        return Mathf.Pow(shrink, state.Count - 1);
+        return Mathf.Pow(shrink, state.Extra);
+    }
+
+    /// <summary>
+    /// How much one piece of information counts: a shot barely audible to this bot counts less (hits always in full), sustained tracer fire counts more,
+    /// and a concealed shooter slows it down. Reads the parts of the last position error this bot computed (call after ComputeUncertainty).
+    /// </summary>
+    private float PieceWeight(bool hit)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float weight = 1f;
+        if (!hit && _dbgAudRange > 0f)
+        {
+            float start = fork.ShotAudibleStart;
+            float peak = Mathf.Max(fork.ShotAudiblePeakRatio, start + 0.05f);
+            float t = Mathf.Clamp01((_dbgAudRatio - start) / (peak - start));
+            weight = Mathf.Lerp(1f, fork.AreaFarPieceWeight, t);
+        }
+        weight *= 1f + fork.AreaTracerPieceBonus * _dbgTracerProgress;
+        weight /= Mathf.Lerp(1f, Mathf.Max(_dbgConc, 1f), fork.AreaConcealmentWeight);
+        return weight;
+    }
+
+    /// <summary>The share of its starting error a rough area can narrow down to (lower while tracers are noticed).</summary>
+    private float FloorFraction()
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        return Mathf.Lerp(fork.AreaFloorFraction, fork.AreaFloorFractionTracer, _dbgTracerProgress);
     }
 
     /// <summary>A Rogue or Goon that narrowed hands the new count to the Rogues and Goons within AreaShareRadius of it (they get the same ring at once).</summary>
@@ -766,25 +803,17 @@ public class ShotReactionClass : BotComponentClassBase
             if (neighbor != state && neighbor.Count < state.Count)
             {
                 neighbor.Count = state.Count;
+                neighbor.Extra = state.Extra;
                 neighbor.LastCount = now;
                 neighbor.LastInfo = now;
             }
         }
     }
 
-    /// <summary>
-    /// The narrowing floor for a shooter at this distance: the full floor at the bot's sight distance and beyond, proportionally less closer
-    /// (the same ratio the uncertainty model uses), so close fights keep their tight areas and far ones narrow only down to a larger floor.
-    /// </summary>
-    private float FloorAt(float floor, float distance, Enemy enemy)
+    /// <summary>The value narrowed by the factor, but never below the floor share of itself (an area that was smaller to begin with is not widened).</summary>
+    private float Shrunk(float value, float factor)
     {
-        return floor * Mathf.Clamp01(distance / Mathf.Max(SightDistance(enemy), 1f));
-    }
-
-    /// <summary>The value narrowed by the factor, but never below the floor (an area that was smaller to begin with stays as it was).</summary>
-    private static float Shrunk(float value, float floor, float factor)
-    {
-        return factor >= 1f ? value : Mathf.Max(value * factor, Mathf.Min(value, floor));
+        return factor >= 1f ? value : value * Mathf.Max(factor, FloorFraction());
     }
 
     /// <summary>
@@ -891,7 +920,7 @@ public class ShotReactionClass : BotComponentClassBase
     {
         ForkSettings fork = GlobalSettings.Fork;
         float own = ComputeUncertainty(enemy.EnemyPlayer, enemy.RealDistance, false, enemy);
-        float uncertainty = Shrunk(Mathf.Max(own, alertUncertainty), FloorAt(fork.AreaFloorOuter, enemy.RealDistance, enemy), NoteInformation(Time.time));
+        float uncertainty = Shrunk(Mathf.Max(own, alertUncertainty), NoteInformation(Time.time, PieceWeight(false)));
         float radius = Mathf.Max(Mathf.Min(uncertainty, ErrorCeiling(fork)), fork.ShotPositionErrorMin);
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 ringCenter = center ?? enemy.EnemyPosition;
@@ -2037,7 +2066,7 @@ public class ShotReactionClass : BotComponentClassBase
         else
         {
             Enemy known = Bot.EnemyController?.GetEnemy(report.Enemy.ProfileId, false);
-            uncertainty = Shrunk(ComputeUncertainty(report.Enemy, distance, false, known), FloorAt(fork.AreaFloorOuter, distance, known), factor);
+            uncertainty = Shrunk(ComputeUncertainty(report.Enemy, distance, false, known), factor);
             float radius = Mathf.Max(Mathf.Min(uncertainty, ErrorCeiling(fork)), fork.ShotPositionErrorMin);
             Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
             Vector3 delta = new Vector3(offset.x, 0f, offset.y);
@@ -2071,7 +2100,7 @@ public class ShotReactionClass : BotComponentClassBase
         float factor = NoteInformation(now);
         Enemy known = Bot.EnemyController?.GetEnemy(enemy.ProfileId, false);
         float distance = (enemy.Position - Bot.Position).magnitude;
-        float uncertainty = Shrunk(ComputeUncertainty(enemy, distance, false, known), FloorAt(fork.AreaFloorOuter, distance, known), factor);
+        float uncertainty = Shrunk(ComputeUncertainty(enemy, distance, false, known), factor);
         RememberVaguePosition(point, uncertainty);
         if (fork.ShotAlertMarksKnown && (!fork.ShotReactionPlayerOnly || (enemy as Player)?.IsYourPlayer == true))
         {

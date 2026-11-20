@@ -377,10 +377,45 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction: Knowing Where The Shooter Is/Rough area rings")]
-    [Name("Area Floor")]
-    [Description("Narrowing never takes a rough area (its radius and uncertainty) below this many meters when the shooter is at the bot's sight distance or farther; closer it is proportionally lower (half the sight distance = half the floor), so close fights keep their tight areas. An area that was smaller to begin with is left as it was. A mounted gun fires at it once its uncertainty is within the gun's limit (machine gun 30 m, grenade launcher 20 m). Related: The floor shrinks with the distance to the shooter (a close shooter has a small floor). Applies to rings from shots, hits, alerts, reports and sightings; Position Error Min is the absolute floor.")]
-    [MinMax(0f, 100f, 1f)]
-    public float AreaFloorOuter = 20f;
+    [Name("Area Floor Fraction")]
+    [Description("Narrowing never takes a rough area (its radius and uncertainty) below this share of the error it started with (0.5 = at most halved), so a far or hard to place shooter stays vague however many pieces arrive. Related: Limit of Area Shrink Per Piece; the starting error is the position error model (audibility, environment, concealment). Tracer fire lowers it (see Area Floor Fraction With Tracers).")]
+    [MinMax(0f, 1f, 100f)]
+    public float AreaFloorFraction = 0.5f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Rough area rings")]
+    [Name("Area Floor Fraction With Tracers")]
+    [Description("The floor share when tracer fire has fully ramped (it moves from Area Floor Fraction to this as the ramp builds): a shooter firing tracers can be narrowed further. Related: Reads the tracer ramp (Tracers section).")]
+    [MinMax(0f, 1f, 100f)]
+    public float AreaFloorFractionTracer = 0.25f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Rough area rings")]
+    [Name("Area Far Piece Weight")]
+    [Description("How much a piece of information counts toward the narrowing when the shot is barely audible (at the audibility peak ratio or beyond): 1 = the same as any, 0 = not at all. It fades in from Audible Start. Hits always count in full. Related: Reads the audibility curve (Audibility section); weights the pieces of Area Shrink Per Piece.")]
+    [MinMax(0f, 1f, 100f)]
+    public float AreaFarPieceWeight = 0.25f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Rough area rings")]
+    [Name("Area Tracer Piece Bonus")]
+    [Description("Extra weight of a piece at full tracer ramp (1 = counts double). Related: Reads the tracer ramp; weights the pieces of Area Shrink Per Piece.")]
+    [MinMax(0f, 4f, 100f)]
+    public float AreaTracerPieceBonus = 1f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Rough area rings")]
+    [Name("Area Tracer Cooldown Cut")]
+    [Description("How much of Area Shrink Cooldown tracer fire cuts at full ramp (0.6 = 60% shorter), so a burst of tracers narrows the area faster. Related: Shortens the time between counted pieces while tracers are noticed.")]
+    [MinMax(0f, 0.9f, 100f)]
+    public float AreaTracerCooldownCut = 0.6f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Rough area rings")]
+    [Name("Area Concealment Weight")]
+    [Description("How strongly the shooter's concealment (prone, crouched, bush, gear) slows the narrowing: a piece's weight is divided by the concealment factor scaled by this. 1 = fully, 0 = not at all. Related: Reads the same concealment factor as the position error; weights the pieces of Area Shrink Per Piece.")]
+    [MinMax(0f, 1f, 100f)]
+    public float AreaConcealmentWeight = 1f;
 
     [DataMember]
     [Category("Shot Reaction: Knowing Where The Shooter Is/Rough area rings")]
