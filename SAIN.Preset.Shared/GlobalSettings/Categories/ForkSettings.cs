@@ -252,16 +252,30 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction: Knowing Where The Shooter Is/Tracers")]
     [Name("Tracer Ramp Shots")]
-    [Description("How many tracer rounds noticed in a row (spaced at least 0.08 s apart) it takes to get from the first factor to the minimum. Related: Length of the tracer ramp.")]
+    [Description("How many tracer rounds noticed (spaced at least 0.08 s apart, minus the slow decay) it takes to get from the first factor to the minimum. Related: Length of the tracer ramp; fewer rounds suit slow shooters.")]
     [MinMax(2f, 30f, 1f)]
     public float ShotTracerRampShots = 8f;
 
     [DataMember]
     [Category("Shot Reaction: Knowing Where The Shooter Is/Tracers")]
-    [Name("Tracer Reset Time")]
-    [Description("Seconds without a noticed tracer round after which the ramp starts over at the first factor. Related: Memory of the tracer ramp.")]
-    [MinMax(0.2f, 10f, 10f)]
-    public float ShotTracerResetTime = 2f;
+    [Name("Tracer Decay Time")]
+    [Description("Seconds for the tracer ramp to lose one step while no new tracer is noticed: the ramp forgets slowly instead of resetting. 60 means one step per minute. Related: Memory of the tracer ramp; a bot only uses the ramp while the shooter is inside its rough area (see Tracer Ring Margin).")]
+    [MinMax(1f, 600f, 1f)]
+    public float ShotTracerDecayTime = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Tracers")]
+    [Name("Tracer Max Memory")]
+    [Description("Seconds after the last noticed tracer round after which the whole ramp is forgotten, whatever steps are left. Related: Upper limit of the tracer memory together with Tracer Decay Time.")]
+    [MinMax(5f, 1200f, 1f)]
+    public float ShotTracerMaxMemory = 180f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Tracers")]
+    [Name("Tracer Ring Margin")]
+    [Description("A bot uses the tracer ramp only while the shooter is inside the rough area it holds: closer to where it last placed the shooter than the area's radius times this. 1 = exactly the radius; a bot without a fresh area uses the ramp. Moving out of the area switches the ramp off for that bot (the steps are kept and come back if the shooter returns). Related: Decides for each bot whether the tracer ramp applies; the area is the one from the position error model.")]
+    [MinMax(0.5f, 4f, 100f)]
+    public float ShotTracerRingMargin = 1.15f;
 
     [DataMember]
     [Category("Shot Reaction: Knowing Where The Shooter Is/Tracers")]

@@ -397,19 +397,31 @@ public class ShotReactionClass : BotComponentClassBase
 
     private struct TracerState
     {
-        public int Count;
+        public float Steps;
         public float Last;
         public float LastCount;
     }
 
     private const float TRACER_COUNT_INTERVAL = 0.08f;
+    private const float TRACER_MAX_STEPS = 30f;
     private static readonly Dictionary<string, TracerState> _tracers = [];
     private static readonly Collider[] _bushColliders = new Collider[4];
     private static int _bushMask = -1;
 
+    /// <summary>The tracer steps of a shooter now: the stored steps minus the slow decay since the last noticed tracer (0 after the max memory).</summary>
+    private static float TracerSteps(TracerState state, float now)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        if (state.Steps <= 0f || now - state.Last > fork.ShotTracerMaxMemory)
+        {
+            return 0f;
+        }
+        return Mathf.Max(0f, state.Steps - (now - state.Last) / Mathf.Max(fork.ShotTracerDecayTime, 1f));
+    }
+
     /// <summary>
-    /// A tracer round of the shooter flew past or landed near a bot: the tracer ramp counts it (at most once per TRACER_COUNT_INTERVAL, since several bots note the same rounds).
-    /// Sustained tracer fire makes the shooter easier to place and cancels part of a suppressor; the ramp starts over after Tracer Reset Time without one.
+    /// A tracer round of the shooter flew past or landed near a bot: one more step on the shooter's tracer ramp (at most once per TRACER_COUNT_INTERVAL, since several bots note the same rounds).
+    /// The steps decay slowly (Tracer Decay Time) and are forgotten after Tracer Max Memory; a bot only uses them while the shooter is inside its rough area (see TracerRamp).
     /// </summary>
     public static void NoteTracer(Shot bullet)
     {
@@ -418,14 +430,15 @@ public class ShotReactionClass : BotComponentClassBase
         {
             float now = Time.time;
             _tracers.TryGetValue(shooter.ProfileId, out TracerState state);
-            if (state.Count == 0 || now - state.Last > GlobalSettings.Fork.ShotTracerResetTime)
+            state.Steps = TracerSteps(state, now);
+            if (state.Steps <= 0f)
             {
-                state.Count = 1;
+                state.Steps = 1f;
                 state.LastCount = now;
             }
             else if (now - state.LastCount >= TRACER_COUNT_INTERVAL)
             {
-                state.Count++;
+                state.Steps = Mathf.Min(state.Steps + 1f, TRACER_MAX_STEPS);
                 state.LastCount = now;
             }
             state.Last = now;
@@ -433,18 +446,39 @@ public class ShotReactionClass : BotComponentClassBase
         }
     }
 
-    /// <summary>The tracer ramp of this shooter: the error factor (1 = no tracer noticed) and how far the ramp has come (0 to 1, for the suppressor cancel).</summary>
-    private static float TracerRamp(IPlayer shooter, out float progress)
+    /// <summary>
+    /// True while the shooter is inside the rough area this bot holds (it has not moved farther than the area's radius times Tracer Ring Margin from where the bot last placed it).
+    /// A bot without a fresh area counts as inside.
+    /// </summary>
+    private bool ShooterInOwnArea(IPlayer shooter)
+    {
+        if (_vaguePositionTime <= 0f || Time.time - _vaguePositionTime > VAGUE_POSITION_MAX_AGE || shooter == null)
+        {
+            return true;
+        }
+        Vector3 delta = shooter.Position - _vagueShooterPosition;
+        delta.y = 0f;
+        float radius = Mathf.Max(_vagueUncertainty, GlobalSettings.Fork.ShotPositionErrorMin) * GlobalSettings.Fork.ShotTracerRingMargin;
+        return delta.magnitude <= radius;
+    }
+
+    /// <summary>The tracer ramp of this shooter for this bot: the error factor (1 = no ramp) and how far the ramp has come (0 to 1, for the suppressor cancel and the narrowing).</summary>
+    private float TracerRamp(IPlayer shooter, out float progress)
     {
         progress = 0f;
         ForkSettings fork = GlobalSettings.Fork;
-        if (shooter == null || !_tracers.TryGetValue(shooter.ProfileId, out TracerState state) || state.Count == 0 || Time.time - state.Last > fork.ShotTracerResetTime)
+        if (shooter == null || !_tracers.TryGetValue(shooter.ProfileId, out TracerState state))
+        {
+            return 1f;
+        }
+        float steps = TracerSteps(state, Time.time);
+        if (steps <= 0f || !ShooterInOwnArea(shooter))
         {
             return 1f;
         }
         float shots = Mathf.Max(fork.ShotTracerRampShots, 2f);
-        progress = Mathf.Clamp01(state.Count / shots);
-        float t = Mathf.Clamp01((state.Count - 1) / (shots - 1f));
+        progress = Mathf.Clamp01(steps / shots);
+        float t = Mathf.Clamp01((steps - 1f) / (shots - 1f));
         return Mathf.Lerp(fork.ShotTracerFirstFactor, fork.ShotTracerMinFactor, t);
     }
 
@@ -590,6 +624,7 @@ public class ShotReactionClass : BotComponentClassBase
         _dbgEnv = EnvironmentErrorFactor(shooter, distance);
         _dbgConc = ConcealmentErrorFactor(shooter, distance);
         _dbgTracer = TracerRamp(shooter, out _dbgTracerProgress);
+        _lastShooterPosition = shooter != null ? shooter.Position : _lastShooterPosition;
         float uncertainty = baseUncertainty * (hit ? fork.ShotHitErrorFactor : 1f) * _dbgAud * _dbgEnv * _dbgConc * _dbgTracer;
         return SoftCap(uncertainty);
     }
@@ -837,6 +872,7 @@ public class ShotReactionClass : BotComponentClassBase
     private void RememberVaguePosition(Vector3 position, float uncertainty)
     {
         _vaguePosition = position;
+        _vagueShooterPosition = _lastShooterPosition;
         _vaguePositionTime = Time.time;
         _vagueUncertainty = uncertainty;
     }
@@ -5675,6 +5711,9 @@ public class ShotReactionClass : BotComponentClassBase
     private float _lastSeenTime = -999f;
     private float _relocateEnd;
     private Vector3 _vaguePosition;
+    /// <summary>Where the shooter really was when the current rough area was made (the area's own origin).</summary>
+    private Vector3 _vagueShooterPosition;
+    private Vector3 _lastShooterPosition;
     private float _vagueUncertainty;
     private float _pendingAlertUncertainty;
     private float _vaguePositionTime = -999f;
