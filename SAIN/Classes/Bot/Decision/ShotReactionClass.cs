@@ -835,9 +835,10 @@ public class ShotReactionClass : BotComponentClassBase
                 continue;
             }
             KnowState neighbor = other.ShotReaction.GetKnowState();
-            if (neighbor != state && neighbor.Count < state.Count)
+            // Compare the weighted total (tracer pieces weigh more than their count), not the raw count.
+            if (neighbor != state && neighbor.Extra < state.Extra)
             {
-                neighbor.Count = state.Count;
+                neighbor.Count = Mathf.Max(neighbor.Count, state.Count);
                 neighbor.Extra = state.Extra;
                 neighbor.LastCount = now;
                 neighbor.LastInfo = now;
