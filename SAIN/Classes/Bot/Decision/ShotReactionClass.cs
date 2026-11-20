@@ -353,18 +353,20 @@ public class ShotReactionClass : BotComponentClassBase
         _lastDegradeTime = now;
 
         float uncertainty = Shrunk(ComputeUncertainty(enemy.EnemyPlayer, distance, hit, enemy), FloorAt(fork.AreaFloorOuter, distance, enemy), NoteInformation(now));
-        float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
+        float radius = Mathf.Max(Mathf.Min(uncertainty, ErrorCeiling(fork)), fork.ShotPositionErrorMin);
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 point = SnapKeepingRing(enemy.EnemyPosition + new Vector3(offset.x, 0f, offset.y), enemy.EnemyPosition, radius * fork.ShotAreaInnerFraction, radius);
         // Never the shooter's exact position: if there is no navmesh near the offset point, the raw offset point is the vague area.
         RememberVaguePosition(point, uncertainty);
+        LogEvent($"position error {radius:0} m at {distance:0} m{(hit ? " (hit)" : "")}: {ErrorBreakdown()}");
         return point;
     }
 
     /// <summary>
-    /// Concealment widens the position error the bots guess from a shot: a prone shooter and a suppressed weapon are harder to place (factors multiply, 1 = no concealment). It widens the error before the cap; the cap itself stays.
+    /// Concealment widens the position error: a prone or crouched shooter, a bush and stealthy gear are harder to place (factors multiply, 1 = no concealment). It widens the error before the cap.
+    /// The suppressor is not here: it shortens the weapon's audible range, see AudibilityErrorFactor.
     /// </summary>
-    public static float ConcealmentErrorFactor(IPlayer shooter)
+    public static float ConcealmentErrorFactor(IPlayer shooter, float distance)
     {
         if (shooter == null)
         {
@@ -372,39 +374,192 @@ public class ShotReactionClass : BotComponentClassBase
         }
         ForkSettings fork = GlobalSettings.Fork;
         float factor = 1f;
-        if ((shooter as Player)?.IsInPronePose == true)
+        Player player = shooter as Player;
+        if (player?.IsInPronePose == true)
         {
             factor *= fork.ShotProneErrorFactor;
         }
-        if (GameWorldComponent.Instance?.PlayerTracker?.GetPlayerComponent(shooter.ProfileId)?.Equipment?.CurrentWeaponInfo?.HasSuppressor == true)
+        else if (player?.Pose == EPlayerPose.Duck)
         {
-            factor *= fork.ShotSuppressedErrorFactor;
+            factor *= fork.ShotCrouchErrorFactor;
         }
         if (fork.ShotBushErrorFactor != 1f && InBush(shooter))
         {
             factor *= fork.ShotBushErrorFactor;
         }
-        if (fork.ShotTracerErrorFactor != 1f && _tracerTimes.TryGetValue(shooter.ProfileId, out float tracerTime) && Time.time - tracerTime < TRACER_MEMORY)
+        if (fork.ShotGearErrorWeight > 0f)
         {
-            factor *= fork.ShotTracerErrorFactor;
+            float gear = GameWorldComponent.Instance?.PlayerTracker?.GetPlayerComponent(shooter.ProfileId)?.AIData?.AIGearModifier?.StealthModifier(distance) ?? 1f;
+            factor *= Mathf.Lerp(1f, Mathf.Clamp(gear, 0.7f, 1.6f), fork.ShotGearErrorWeight);
         }
         return factor;
     }
 
-    private const float TRACER_MEMORY = 3f;
-    private static readonly Dictionary<string, float> _tracerTimes = [];
+    private struct TracerState
+    {
+        public int Count;
+        public float Last;
+        public float LastCount;
+    }
+
+    private const float TRACER_COUNT_INTERVAL = 0.08f;
+    private static readonly Dictionary<string, TracerState> _tracers = [];
     private static readonly Collider[] _bushColliders = new Collider[4];
     private static int _bushMask = -1;
 
-    /// <summary>A tracer round of the shooter flew past or landed near a bot: for a short while its position is easier to place.</summary>
+    /// <summary>
+    /// A tracer round of the shooter flew past or landed near a bot: the tracer ramp counts it (at most once per TRACER_COUNT_INTERVAL, since several bots note the same rounds).
+    /// Sustained tracer fire makes the shooter easier to place and cancels part of a suppressor; the ramp starts over after Tracer Reset Time without one.
+    /// </summary>
     public static void NoteTracer(Shot bullet)
     {
         IPlayer shooter = bullet?.Player?.iPlayer;
         if (shooter != null && bullet.Ammo is Ammo ammo && ammo.AmmoTemplate != null && ammo.AmmoTemplate.Tracer)
         {
-            _tracerTimes[shooter.ProfileId] = Time.time;
+            float now = Time.time;
+            _tracers.TryGetValue(shooter.ProfileId, out TracerState state);
+            if (state.Count == 0 || now - state.Last > GlobalSettings.Fork.ShotTracerResetTime)
+            {
+                state.Count = 1;
+                state.LastCount = now;
+            }
+            else if (now - state.LastCount >= TRACER_COUNT_INTERVAL)
+            {
+                state.Count++;
+                state.LastCount = now;
+            }
+            state.Last = now;
+            _tracers[shooter.ProfileId] = state;
         }
     }
+
+    /// <summary>The tracer ramp of this shooter: the error factor (1 = no tracer noticed) and how far the ramp has come (0 to 1, for the suppressor cancel).</summary>
+    private static float TracerRamp(IPlayer shooter, out float progress)
+    {
+        progress = 0f;
+        ForkSettings fork = GlobalSettings.Fork;
+        if (shooter == null || !_tracers.TryGetValue(shooter.ProfileId, out TracerState state) || state.Count == 0 || Time.time - state.Last > fork.ShotTracerResetTime)
+        {
+            return 1f;
+        }
+        float shots = Mathf.Max(fork.ShotTracerRampShots, 2f);
+        progress = Mathf.Clamp01(state.Count / shots);
+        float t = Mathf.Clamp01((state.Count - 1) / (shots - 1f));
+        return Mathf.Lerp(fork.ShotTracerFirstFactor, fork.ShotTracerMinFactor, t);
+    }
+
+    /// <summary>
+    /// How well the shot can be placed by sound: distance divided by the range the shooter's weapon is heard at (caliber, muzzle devices and a suppressor already in it).
+    /// Flat up to Audible Start, then a smooth rise to the peak factor at the peak ratio, then a slow rise to the max factor one audible range further out.
+    /// Sustained tracer fire moves the range back toward the unsuppressed one.
+    /// </summary>
+    private float AudibilityErrorFactor(IPlayer shooter, float distance)
+    {
+        _dbgAudRange = 0f;
+        _dbgAudRatio = 0f;
+        ForkSettings fork = GlobalSettings.Fork;
+        var info = GameWorldComponent.Instance?.PlayerTracker?.GetPlayerComponent(shooter?.ProfileId)?.Equipment?.CurrentWeaponInfo;
+        if (info == null)
+        {
+            return 1f;
+        }
+        float range = info.CalculatedAudibleRange;
+        if (info.HasSuppressor && fork.ShotTracerSuppressorCancel > 0f)
+        {
+            TracerRamp(shooter, out float progress);
+            if (progress > 0f)
+            {
+                float loud = info.BaseAudibleRange + (info.FlashHider?.Loudness ?? 0f);
+                range = Mathf.Lerp(range, Mathf.Max(loud, range), fork.ShotTracerSuppressorCancel * progress);
+            }
+        }
+        range = Mathf.Max(range, 10f);
+        float r = distance / range;
+        _dbgAudRange = range;
+        _dbgAudRatio = r;
+
+        float start = fork.ShotAudibleStart;
+        float peakRatio = Mathf.Max(fork.ShotAudiblePeakRatio, start + 0.05f);
+        float peak = Mathf.Max(fork.ShotAudiblePeakFactor, 1f);
+        if (r <= start)
+        {
+            return 1f;
+        }
+        if (r <= peakRatio)
+        {
+            float t = (r - start) / (peakRatio - start);
+            return 1f + (peak - 1f) * t * t;
+        }
+        float max = Mathf.Max(fork.ShotAudibleMaxFactor, peak);
+        return Mathf.Min(max, peak + (max - peak) * (r - peakRatio));
+    }
+
+    /// <summary>
+    /// Inside to outside: a shooter in a building (environment id above 0) and a bot outside cannot tell which building a shot came from, more so the further away it is.
+    /// Outside to inside gets a milder version at long range. Building to building and outside to outside are unchanged (1).
+    /// </summary>
+    private float EnvironmentErrorFactor(IPlayer shooter, float distance)
+    {
+        int shooterEnv = (shooter as Player)?.AIData?.EnvironmentId ?? 0;
+        int botEnv = Bot.Player?.AIData?.EnvironmentId ?? 0;
+        _dbgShooterEnv = shooterEnv;
+        _dbgBotEnv = botEnv;
+        ForkSettings fork = GlobalSettings.Fork;
+        if (shooterEnv > 0 && botEnv == 0)
+        {
+            return RampFactor(distance, fork.ShotEnvInOutStart, fork.ShotEnvInOutFull, fork.ShotEnvInOutFactor);
+        }
+        if (shooterEnv == 0 && botEnv > 0)
+        {
+            return RampFactor(distance, fork.ShotEnvOutInStart, fork.ShotEnvOutInFull, fork.ShotEnvOutInFactor);
+        }
+        return 1f;
+    }
+
+    /// <summary>1 up to start, a smooth rise to the factor at full, the factor beyond.</summary>
+    private static float RampFactor(float distance, float start, float full, float factor)
+    {
+        if (factor <= 1f || distance <= start)
+        {
+            return 1f;
+        }
+        float t = Mathf.Clamp01((distance - start) / Mathf.Max(full - start, 1f));
+        t = t * t * (3f - 2f * t);
+        return 1f + (factor - 1f) * t;
+    }
+
+    /// <summary>Up to Position Error Max the value is unchanged; above it only creeps toward Position Error Soft Max (exponential approach, Soft Length meters of raw error for 63%).</summary>
+    public static float SoftCap(float value)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float knee = fork.ShotPositionErrorMax;
+        float room = fork.ShotPositionErrorSoftMax - knee;
+        if (value <= knee)
+        {
+            return value;
+        }
+        if (room <= 0f)
+        {
+            return knee;
+        }
+        return knee + room * (1f - Mathf.Exp(-(value - knee) / Mathf.Max(fork.ShotPositionErrorSoftLength, 1f)));
+    }
+
+    /// <summary>The largest radius a ring or an uncertainty can have (the soft maximum, or the knee if that is lower).</summary>
+    private static float ErrorCeiling(ForkSettings fork)
+    {
+        return Mathf.Max(fork.ShotPositionErrorMax, fork.ShotPositionErrorSoftMax);
+    }
+
+    private float _dbgBase;
+    private float _dbgAudRange;
+    private float _dbgAudRatio;
+    private float _dbgAud;
+    private float _dbgEnv;
+    private float _dbgConc;
+    private float _dbgTracer;
+    private int _dbgShooterEnv;
+    private int _dbgBotEnv;
 
     /// <summary>The shooter stands in a bush: foliage colliders around its chest.</summary>
     private static bool InBush(IPlayer shooter)
@@ -417,20 +572,31 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>
-    /// How unsure this bot is where a shot came from (meters, 0 to the cap). It grows with the distance to the shooter relative to the bot's own view distance
-    /// (its current effective view distance for that shooter, which already holds weather, night, goggles, lights, movement, flare and gear such as a backpack):
-    /// 20 m at exactly sight, linear closer, 15 m more per further view distance beyond it. On top: a hit (small bonus) and the shooter's concealment
-    /// (prone, bush, suppressed weapon, a tracer round). The guessed position's error radius is this (never below the minimum error).
+    /// How unsure this bot is where a shot came from (meters). The base is the larger of the sight-based error (20 m at exactly the bot's view distance, linear closer, 15 m more per further
+    /// view distance) and distance times Error Per Meter. On top: a hit (small bonus), the audibility of the shot (its range from caliber, muzzle devices and suppressor), the environment
+    /// (inside to outside grows with the distance), concealment (prone, crouched, bush, gear) and the tracer ramp. The result goes through the soft cap (knee Position Error Max, creeping to Soft Max).
     /// </summary>
     public float ComputeUncertainty(IPlayer shooter, float distance, bool hit, Enemy enemy)
     {
         ForkSettings fork = GlobalSettings.Fork;
         float ratio = distance / SightDistance(enemy);
-        float baseUncertainty = ratio <= 1f
+        float sightBased = ratio <= 1f
             ? fork.ShotUncertaintyAtSight * ratio
             : fork.ShotUncertaintyAtSight + fork.ShotUncertaintyBeyondSight * (ratio - 1f);
-        float uncertainty = baseUncertainty * (hit ? fork.ShotHitErrorFactor : 1f) * ConcealmentErrorFactor(shooter);
-        return Mathf.Min(uncertainty, fork.ShotPositionErrorMax);
+        float baseUncertainty = Mathf.Max(sightBased, distance * fork.ShotErrorPerMeter);
+        _dbgBase = baseUncertainty;
+        _dbgAud = AudibilityErrorFactor(shooter, distance);
+        _dbgEnv = EnvironmentErrorFactor(shooter, distance);
+        _dbgConc = ConcealmentErrorFactor(shooter, distance);
+        _dbgTracer = TracerRamp(shooter, out _);
+        float uncertainty = baseUncertainty * (hit ? fork.ShotHitErrorFactor : 1f) * _dbgAud * _dbgEnv * _dbgConc * _dbgTracer;
+        return SoftCap(uncertainty);
+    }
+
+    /// <summary>One log line with the parts of the last position error this bot computed (see ComputeUncertainty).</summary>
+    private string ErrorBreakdown()
+    {
+        return $"base {_dbgBase:0.0} m, audibility x{_dbgAud:0.00} (heard to {_dbgAudRange:0} m, at {_dbgAudRatio:0.00} of it), environment x{_dbgEnv:0.00} (shooter env {_dbgShooterEnv}, bot env {_dbgBotEnv}), concealment x{_dbgConc:0.00}, tracer x{_dbgTracer:0.00}";
     }
 
     /// <summary>The bot's current effective view distance for this shooter (meters): its visible distance plus the per shooter bonus (movement, flare, gear), at least the minimum sight.</summary>
@@ -726,7 +892,7 @@ public class ShotReactionClass : BotComponentClassBase
         ForkSettings fork = GlobalSettings.Fork;
         float own = ComputeUncertainty(enemy.EnemyPlayer, enemy.RealDistance, false, enemy);
         float uncertainty = Shrunk(Mathf.Max(own, alertUncertainty), FloorAt(fork.AreaFloorOuter, enemy.RealDistance, enemy), NoteInformation(Time.time));
-        float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
+        float radius = Mathf.Max(Mathf.Min(uncertainty, ErrorCeiling(fork)), fork.ShotPositionErrorMin);
         Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
         Vector3 ringCenter = center ?? enemy.EnemyPosition;
         Vector3 point = SnapKeepingRing(ringCenter + new Vector3(offset.x, 0f, offset.y), ringCenter, radius * fork.ShotAreaInnerFraction, radius);
@@ -1324,7 +1490,7 @@ public class ShotReactionClass : BotComponentClassBase
             Vector3 killer = lastAggressor.Position;
             float distance = (killer - Bot.Position).magnitude;
             float uncertainty = ComputeUncertainty(lastAggressor, distance, true, null);
-            float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
+            float radius = Mathf.Max(Mathf.Min(uncertainty, ErrorCeiling(fork)), fork.ShotPositionErrorMin);
             Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
             RememberVaguePosition(killer + new Vector3(offset.x, 0f, offset.y), uncertainty);
             LogEvent($"killed by {killerName} from {distance:0} m (uncertainty {uncertainty:0} m)");
@@ -1872,7 +2038,7 @@ public class ShotReactionClass : BotComponentClassBase
         {
             Enemy known = Bot.EnemyController?.GetEnemy(report.Enemy.ProfileId, false);
             uncertainty = Shrunk(ComputeUncertainty(report.Enemy, distance, false, known), FloorAt(fork.AreaFloorOuter, distance, known), factor);
-            float radius = Mathf.Max(Mathf.Min(uncertainty, fork.ShotPositionErrorMax), fork.ShotPositionErrorMin);
+            float radius = Mathf.Max(Mathf.Min(uncertainty, ErrorCeiling(fork)), fork.ShotPositionErrorMin);
             Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
             Vector3 delta = new Vector3(offset.x, 0f, offset.y);
             point = SnapKeepingRing(report.Position + delta, report.Position, radius * fork.ShotAreaInnerFraction, radius);

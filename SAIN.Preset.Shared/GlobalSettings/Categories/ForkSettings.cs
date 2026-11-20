@@ -112,7 +112,7 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     [DataMember]
     [Category("Shot Reaction: Knowing Where The Shooter Is/Position error")]
     [Name("Position Error Max")]
-    [Description("The largest position error and the largest uncertainty, in meters. A hard ceiling: concealment widens the uncertainty before it, but never raises it. Related: Caps the ring radius and the uncertainty that every 'Uncertainty effects' setting reads; Position Error Min is the floor. Area Floor can raise the radius further at long range.")]
+    [Description("The position error / uncertainty (meters) up to which it is taken as it is. Above it the value only creeps toward Position Error Soft Max (see there), so it takes extreme circumstances to get near that. Related: Knee of the cap on the ring radius and the uncertainty; concealment, audibility and environment widen the error before it. Set Soft Max at or below this for a hard ceiling.")]
     [MinMax(0f, 300f, 1f)]
     public float ShotPositionErrorMax = 50f;
 
@@ -125,17 +125,45 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction: Knowing Where The Shooter Is/Position error")]
+    [Name("Position Error Soft Max")]
+    [Description("The value the position error and the uncertainty approach above Position Error Max, in meters. Between the two the error creeps up slowly (see Soft Length), so only extreme circumstances get near it. Related: Upper limit of the ring radius and the uncertainty; at or below Position Error Max it is a hard ceiling at Position Error Max.")]
+    [MinMax(0f, 300f, 1f)]
+    public float ShotPositionErrorSoftMax = 75f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Position error")]
+    [Name("Position Error Soft Length")]
+    [Description("How slowly the error creeps from Position Error Max toward Soft Max, in meters of raw error: after this many meters above the knee it has covered about 63% of the way (100 and a knee of 50 means a raw 150 m gives about 65 m). Larger = slower. Related: Shape of the soft cap, nothing else.")]
+    [MinMax(1f, 1000f, 1f)]
+    public float ShotPositionErrorSoftLength = 100f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Position error")]
+    [Name("Error Per Meter Floor")]
+    [Description("The base error is never less than the distance to the shooter times this (0.10 = 10 m at 100 m), so a bot with a long view distance does not place a far shooter exactly. Concealment, audibility and the environment multiply it. 0 = off. Related: Minimum base error before the factors; the sight-based error (Uncertainty At Sight) is used when it is larger.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotErrorPerMeter = 0.10f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Position error")]
+    [Name("Crouch Shooter Error Factor")]
+    [Description("The position error is multiplied by this when the shooter fires crouched (a smaller silhouette, harder to place). 1 = no effect. Related: Multiplies the position error together with the other shooter factors (prone, bush, gear, hit).")]
+    [MinMax(1f, 4f, 100f)]
+    public float ShotCrouchErrorFactor = 1.15f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Position error")]
+    [Name("Gear Error Weight")]
+    [Description("How much of the shooter's gear stealth value (backpack, headwear, face cover, rig; the same value the vision code uses) multiplies the position error. 1 = fully, 0 = not at all. Related: Stealthier gear gives a larger error; the value is the one from the gear stealth table of the preset.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotGearErrorWeight = 1f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Position error")]
     [Name("Prone Shooter Error Factor")]
     [Description("The position error (before the cap) is multiplied by this when the shooter lies prone: harder to place. 1 = no effect. Stacks with the suppressed factor. Related: Multiplies the position error together with the other shooter factors (suppressed, hit, bush, tracer); the result is still capped by Position Error Max.")]
     [MinMax(1f, 4f, 100f)]
     public float ShotProneErrorFactor = 1.3f;
-
-    [DataMember]
-    [Category("Shot Reaction: Knowing Where The Shooter Is/Position error")]
-    [Name("Suppressed Shooter Error Factor")]
-    [Description("The position error (before the cap) is multiplied by this when the shooter fires a suppressed weapon. 1 = no effect. Stacks with the prone factor. Related: Multiplies the position error together with the other shooter factors; capped by Position Error Max. The roll also has its own Suppressed Shooter Factor (The First Roll).")]
-    [MinMax(1f, 4f, 100f)]
-    public float ShotSuppressedErrorFactor = 1.15f;
 
     [DataMember]
     [Category("Shot Reaction: Knowing Where The Shooter Is/Position error")]
@@ -180,11 +208,109 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public float ShotBushErrorFactor = 1.3f;
 
     [DataMember]
-    [Category("Shot Reaction: Knowing Where The Shooter Is/Uncertainty")]
-    [Name("Tracer Error Factor")]
-    [Description("The uncertainty is multiplied by this for a short while after a tracer round of the shooter flew past or landed near the bot: a tracer shows where it came from. Below 1 makes the guess better. 1 = no effect. Related: Multiplies the uncertainty with the other shooter factors; capped by Position Error Max.")]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Audibility")]
+    [Name("Audible Start")]
+    [Description("Below this share of the shot's audible range (distance divided by the range the weapon is heard at, with its suppressor and caliber) the shot is placed as well as before. Above it the position error grows. Related: Start of the audibility curve; the range comes from the weapon the shooter holds (hearing distance by caliber plus muzzle devices, times the suppressor modifier).")]
+    [MinMax(0.1f, 2f, 100f)]
+    public float ShotAudibleStart = 0.7f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Audibility")]
+    [Name("Audible Peak Ratio")]
+    [Description("The share of the audible range at which the audibility factor reaches Audible Peak Factor (1.3 = 30% beyond the range the shot is heard at). Related: Steepness of the audibility curve together with Audible Start.")]
+    [MinMax(0.2f, 4f, 100f)]
+    public float ShotAudiblePeakRatio = 1.3f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Audibility")]
+    [Name("Audible Peak Factor")]
+    [Description("The multiplier on the position error at the peak ratio (the curve rises smoothly from 1 at the start). A shot barely heard is placed badly. Related: Multiplies the position error with the other factors; capped by the soft cap.")]
+    [MinMax(1f, 20f, 100f)]
+    public float ShotAudiblePeakFactor = 4f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Audibility")]
+    [Name("Audible Max Factor")]
+    [Description("Beyond the peak ratio the factor keeps rising slowly, up to this value, which it reaches one full audible range further out. Related: Ceiling of the audibility factor.")]
+    [MinMax(1f, 30f, 100f)]
+    public float ShotAudibleMaxFactor = 6f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Tracers")]
+    [Name("Tracer First Factor")]
+    [Description("The position error is multiplied by this when a tracer round of the shooter first flew past or landed near the bot: a tracer shows where it came from, a little. Related: Start of the tracer ramp; it falls to Tracer Min Factor over the Ramp Shots.")]
     [MinMax(0.1f, 1f, 100f)]
-    public float ShotTracerErrorFactor = 0.7f;
+    public float ShotTracerFirstFactor = 0.95f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Tracers")]
+    [Name("Tracer Min Factor")]
+    [Description("The lowest multiplier the tracer ramp reaches during sustained tracer fire. Related: End of the tracer ramp; also sets how far the suppressor is cancelled (see Tracer Suppressor Cancel).")]
+    [MinMax(0.1f, 1f, 100f)]
+    public float ShotTracerMinFactor = 0.4f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Tracers")]
+    [Name("Tracer Ramp Shots")]
+    [Description("How many tracer rounds noticed in a row (spaced at least 0.08 s apart) it takes to get from the first factor to the minimum. Related: Length of the tracer ramp.")]
+    [MinMax(2f, 30f, 1f)]
+    public float ShotTracerRampShots = 8f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Tracers")]
+    [Name("Tracer Reset Time")]
+    [Description("Seconds without a noticed tracer round after which the ramp starts over at the first factor. Related: Memory of the tracer ramp.")]
+    [MinMax(0.2f, 10f, 10f)]
+    public float ShotTracerResetTime = 2f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Tracers")]
+    [Name("Tracer Suppressor Cancel")]
+    [Description("How much of a suppressor's effect (the shorter audible range) a sustained tracer fire cancels: the audible range moves this share of the way back to the unsuppressed range, scaled by how far the ramp has come. 0 = not at all. Related: Only matters with a suppressed weapon; reads the same audibility curve.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShotTracerSuppressorCancel = 0.6f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Environment")]
+    [Name("Inside To Outside Start")]
+    [Description("A shooter inside a building (its environment id is above 0) and a bot outside: no extra error up to this distance in meters, then the error grows (see Inside To Outside Full and Factor). Related: Start of the ramp that makes it hard to tell which building a shot came from.")]
+    [MinMax(0f, 500f, 1f)]
+    public float ShotEnvInOutStart = 60f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Environment")]
+    [Name("Inside To Outside Full")]
+    [Description("The distance in meters at which the inside-to-outside multiplier is at full strength. Related: End of the inside-to-outside ramp.")]
+    [MinMax(1f, 1000f, 1f)]
+    public float ShotEnvInOutFull = 200f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Environment")]
+    [Name("Inside To Outside Factor")]
+    [Description("The position error multiplier for a shooter inside and a bot outside at the full distance (smooth rise from 1 at the start). 1 = off. Related: Multiplies the position error with the other factors; building to building and outside to outside are unchanged.")]
+    [MinMax(1f, 10f, 100f)]
+    public float ShotEnvInOutFactor = 2.5f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Environment")]
+    [Name("Outside To Inside Start")]
+    [Description("A shooter outside and a bot inside a building: no extra error up to this distance in meters. Related: Start of the outside-to-inside ramp.")]
+    [MinMax(0f, 500f, 1f)]
+    public float ShotEnvOutInStart = 100f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Environment")]
+    [Name("Outside To Inside Full")]
+    [Description("The distance in meters at which the outside-to-inside multiplier is at full strength. Related: End of the outside-to-inside ramp.")]
+    [MinMax(1f, 1000f, 1f)]
+    public float ShotEnvOutInFull = 250f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Environment")]
+    [Name("Outside To Inside Factor")]
+    [Description("The position error multiplier for a shooter outside and a bot inside at the full distance. 1 = off. Related: Multiplies the position error with the other factors.")]
+    [MinMax(1f, 10f, 100f)]
+    public float ShotEnvOutInFactor = 1.5f;
 
     [DataMember]
     [Category("Shot Reaction: Knowing Where The Shooter Is/Uncertainty effects")]
