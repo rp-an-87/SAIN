@@ -411,6 +411,41 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public float AreaFarPieceWeight = 0.25f;
 
     [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Sharing")]
+    [Name("Share Base Error")]
+    [Description("Information a bot passes on (a sighting report, a squad or Rogue alert) is exact at its source, but never exact at the listener: this much error (meters) is added for everyone, even the squadmate next to the source. It is the small non-determinism of a radio call. Related: Added to the source's own error, then Share Free Range, Share Near Per Meter and Share Far Per Meter add the distance blur; the soft cap applies last.")]
+    [MinMax(0f, 20f, 10f)]
+    public float ShareBaseError = 2f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Sharing")]
+    [Name("Share Free Range")]
+    [Description("Listeners within this distance (meters) of the source only get the base error. Beyond it the blur grows: slowly up to Share Near End, faster after it. Related: Like pointing at a tree: a mate next to you knows which, one on the other side of the map does not.")]
+    [MinMax(0f, 200f, 1f)]
+    public float ShareFreeRange = 20f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Sharing")]
+    [Name("Share Near Per Meter")]
+    [Description("Extra error (meters per meter) between Share Free Range and Share Near End.")]
+    [MinMax(0f, 1f, 100f)]
+    public float ShareNearPerMeter = 0.05f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Sharing")]
+    [Name("Share Near End")]
+    [Description("Distance (meters) from the source where the blur starts to grow faster (Share Far Per Meter).")]
+    [MinMax(0f, 500f, 1f)]
+    public float ShareNearEnd = 100f;
+
+    [DataMember]
+    [Category("Shot Reaction: Knowing Where The Shooter Is/Sharing")]
+    [Name("Share Far Per Meter")]
+    [Description("Extra error (meters per meter) beyond Share Near End, before the soft cap. Related: The soft cap (Position Error Max / Soft Max) limits the total.")]
+    [MinMax(0f, 2f, 100f)]
+    public float ShareFarPerMeter = 0.2f;
+
+    [DataMember]
     [Category("Shot Reaction: Knowing Where The Shooter Is/Rough area rings")]
     [Name("Area Tracer Piece Bonus")]
     [Description("Extra weight of a piece at full tracer ramp (1 = counts double). Related: Reads the tracer ramp; weights the pieces of Area Shrink Per Piece.")]

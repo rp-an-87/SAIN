@@ -607,6 +607,90 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>
+    /// The error of a SIGHTING (a bot that sees the player reports it): only what a pair of eyes has. The distance over the bot's sight range (as for a shot), times concealment
+    /// (prone, crouch, bush, gear), soft capped. No audibility, environment or tracer: those belong to sound.
+    /// </summary>
+    public float ComputeVisualUncertainty(IPlayer player, float distance, Enemy enemy)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float ratio = distance / SightDistance(enemy);
+        float sightBased = ratio <= 1f
+            ? fork.ShotUncertaintyAtSight * ratio
+            : fork.ShotUncertaintyAtSight + fork.ShotUncertaintyBeyondSight * (ratio - 1f);
+        _dbgBase = sightBased;
+        _dbgAudRange = 0f;
+        _dbgAudRatio = 0f;
+        _dbgAud = 1f;
+        _dbgEnv = 1f;
+        _dbgTracer = 1f;
+        _dbgConc = ConcealmentErrorFactor(player, distance);
+        return SoftCap(sightBased * _dbgConc);
+    }
+
+    /// <summary>
+    /// What is lost when information travels from its source to a listener (meters): a small error for everyone, then a slow growth after the free range and a faster one after the near end.
+    /// The source itself loses nothing (the caller passes 0).
+    /// </summary>
+    private static float TransmissionError(float distance)
+    {
+        ForkSettings fork = GlobalSettings.Fork;
+        float error = fork.ShareBaseError;
+        float nearEnd = Mathf.Max(fork.ShareNearEnd, fork.ShareFreeRange);
+        float near = Mathf.Min(distance, nearEnd) - fork.ShareFreeRange;
+        if (near > 0f)
+        {
+            error += near * fork.ShareNearPerMeter;
+        }
+        float far = distance - nearEnd;
+        if (far > 0f)
+        {
+            error += far * fork.ShareFarPerMeter;
+        }
+        return error;
+    }
+
+    private float _sharedKey = -1f;
+    private Vector2 _sharedJitter;
+    private bool _vagueShared;
+
+    /// <summary>
+    /// Takes information from another bot: the source's area (point and radius) as it came, blurred by the distance to the source (the radius grows by the transmission error, soft capped,
+    /// and the point moves by a random offset of at most that growth, so the player stays inside). The offset is rolled once per piece of shared information (key), not on every repeat.
+    /// A fresh, tighter area this bot made from its own senses is kept. Returns the position the bot holds afterwards.
+    /// </summary>
+    private Vector3 TakeShared(Vector3 point, float sourceUncertainty, float transmission, float key, string what, string from, float distance)
+    {
+        float now = Time.time;
+        float uncertainty = SoftCap(sourceUncertainty + transmission);
+        float grown = Mathf.Max(0f, uncertainty - sourceUncertainty);
+        float jitter = Mathf.Min(transmission, grown);
+        if (jitter > 0.01f)
+        {
+            if (key != _sharedKey || key < 0f)
+            {
+                _sharedKey = key;
+                _sharedJitter = Random.insideUnitCircle;
+            }
+            Vector3 raw = point + new Vector3(_sharedJitter.x, 0f, _sharedJitter.y) * jitter;
+            point = SnapKeepingRing(raw, point, 0f, jitter);
+        }
+        if (!_vagueShared && _vaguePositionTime > 0f && now - _vaguePositionTime <= GlobalSettings.Fork.AreaShrinkCooldown && _vagueUncertainty <= uncertainty)
+        {
+            return _vaguePosition;
+        }
+        RememberVaguePosition(point, uncertainty);
+        _vagueShared = true;
+        if (key < 0f || key != _lastShareLogKey)
+        {
+            _lastShareLogKey = key;
+            LogEvent($"shared {what} from {from}: source error {sourceUncertainty:0} m, blur +{transmission:0.0} m at {distance:0} m from the source, area {uncertainty:0} m");
+        }
+        return point;
+    }
+
+    private float _lastShareLogKey = -2f;
+
+    /// <summary>
     /// How unsure this bot is where a shot came from (meters). The base is the larger of the sight-based error (20 m at exactly the bot's view distance, linear closer, 15 m more per further
     /// view distance) and distance times Error Per Meter. On top: a hit (small bonus), the audibility of the shot (its range from caliber, muzzle devices and suppressor), the environment
     /// (inside to outside grows with the distance), concealment (prone, crouched, bush, gear) and the tracer ramp. The result goes through the soft cap (knee Position Error Max, creeping to Soft Max).
@@ -872,6 +956,7 @@ public class ShotReactionClass : BotComponentClassBase
 
     private void RememberVaguePosition(Vector3 position, float uncertainty)
     {
+        _vagueShared = false;
         _vaguePosition = position;
         _vagueShooterPosition = _lastShooterPosition;
         _vaguePositionTime = Time.time;
@@ -944,18 +1029,27 @@ public class ShotReactionClass : BotComponentClassBase
             Enemy mateEnemy = EnemyFor(member, shooter);
             if (mateEnemy != null)
             {
-                member.ShotReaction.QueueSquadAlert(mateEnemy, _vaguePosition, Bot.name, Random.Range(fork.ShotSquadAlertDelayMin, Mathf.Max(fork.ShotSquadAlertDelayMin, fork.ShotSquadAlertDelayMax)), _vagueUncertainty);
+                member.ShotReaction.QueueSquadAlert(mateEnemy, _vaguePosition, Bot.name, Random.Range(fork.ShotSquadAlertDelayMin, Mathf.Max(fork.ShotSquadAlertDelayMin, fork.ShotSquadAlertDelayMax)), _vagueUncertainty, Bot.Position);
             }
         }
     }
 
     /// <summary>
-    /// The bot learns a rough area from a mate's alert (hit, kill or bullet). Its uncertainty comes from its OWN distance to the shooter (the same model, as for a shot that was not a hit on it),
-    /// never better than what the alert carried, and the area is its own random point inside that error (not the mate's point).
+    /// The bot learns a rough area from a mate's alert (hit, kill or bullet). The alert carries the source's area (point and radius): this bot takes it as it came, blurred only by
+    /// the distance to the source (TakeShared), not re-guessed from its own distance. A man-down alert (center given) is still drawn around that center with the larger of the
+    /// bot's own and the alert's error.
     /// </summary>
-    private void LearnFromAlert(Enemy enemy, float alertUncertainty, Vector3? center = null)
+    private void LearnFromAlert(Enemy enemy, float alertUncertainty, Vector3? center = null, Vector3? area = null, Vector3? sourcePosition = null)
     {
         ForkSettings fork = GlobalSettings.Fork;
+        if (center == null && area.HasValue && sourcePosition.HasValue)
+        {
+            NoteInformation(Time.time, PieceWeight(false));
+            float distance = (sourcePosition.Value - Bot.Position).magnitude;
+            Vector3 held = TakeShared(area.Value, alertUncertainty, TransmissionError(distance), -1f, "alert", _pendingAlertFrom ?? "a mate", distance);
+            MarkKnown(enemy, held);
+            return;
+        }
         float own = ComputeUncertainty(enemy.EnemyPlayer, enemy.RealDistance, false, enemy);
         float uncertainty = Shrunk(Mathf.Max(own, alertUncertainty), NoteInformation(Time.time, PieceWeight(false)));
         float radius = Mathf.Max(Mathf.Min(uncertainty, ErrorCeiling(fork)), fork.ShotPositionErrorMin);
@@ -967,14 +1061,14 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>A squadmate was hit by this shooter: this bot learns a rough area of its own and rolls its own reaction as for a close bullet.</summary>
-    public void ReceiveSquadAlert(Enemy enemy, Vector3 area, string fromName, float uncertainty)
+    public void ReceiveSquadAlert(Enemy enemy, Vector3 area, string fromName, float uncertainty, Vector3 sourcePosition)
     {
         float now = Time.time;
         if (!AppliesTo(enemy) || Outcome != EShotReaction.None || Relocating || now < _nextRollTime)
         {
             return;
         }
-        LearnFromAlert(enemy, uncertainty);
+        LearnFromAlert(enemy, uncertainty, null, area, sourcePosition);
         LogEvent($"squad alert from {fromName}: rolling as for a close bullet");
         Roll(enemy, enemy.RealDistance, false, now);
     }
@@ -1353,7 +1447,7 @@ public class ShotReactionClass : BotComponentClassBase
             if (otherEnemy != null)
             {
                 float delay = Random.Range(fork.ShotRogueAlertDelayMin, Mathf.Max(fork.ShotRogueAlertDelayMin, fork.ShotRogueAlertDelayMax)) + Mathf.Sqrt(awaySqr) * fork.ShotRogueAlertDelayPerMeter;
-                other.ShotReaction.QueueRogueAlert(otherEnemy, area, fromName, delay, uncertainty, center, manDown);
+                other.ShotReaction.QueueRogueAlert(otherEnemy, area, fromName, delay, uncertainty, origin, center, manDown);
                 alerted++;
             }
         }
@@ -2068,6 +2162,8 @@ public class ShotReactionClass : BotComponentClassBase
         public float Uncertainty;
         public float Time;
         public IPlayer Enemy;
+        public Vector3 SourcePosition;
+        public BotOwner Source;
     }
 
     private static readonly Dictionary<BotsGroup, GroupPoint> _groupPoints = [];
@@ -2082,40 +2178,49 @@ public class ShotReactionClass : BotComponentClassBase
         }
         float factor = NoteInformation(now);
         Vector3 playerPosition = report.Enemy.Position;
-        float distance = (playerPosition - Bot.Position).magnitude;
-        for (int i = 0; i < group.MembersCount; i++)
+        // A report is a sighting: the error is the one of the bot that SAW the player (its distance and its sight), not of the member closest to the player.
+        BotOwner source = report.Reporter != null && !report.Reporter.IsDead ? report.Reporter : Bot.BotOwner;
+        ShotReactionClass sourceReaction = this;
+        BotManagerComponent sourceManager = BotManagerComponent.Instance;
+        if (sourceManager != null && sourceManager.GetSAIN(source, out BotComponent sourceBot) && sourceBot.ShotReaction != null)
         {
-            BotOwner member = group.Member(i);
-            if (member != null && !member.IsDead)
-            {
-                distance = Mathf.Min(distance, (playerPosition - member.Position).magnitude);
-            }
+            sourceReaction = sourceBot.ShotReaction;
         }
+        float distance = (playerPosition - source.Position).magnitude;
         Vector3 point;
         float uncertainty;
+        Vector3 sourcePosition;
+        BotOwner pointSource;
+        float pointTime;
         // The group's point stays where it is until a new piece of information narrows it (at most once per cooldown): a point that jumps every report
         // makes the covers valid, then invalid, and the bots keep choosing again.
         if (_groupPoints.TryGetValue(group, out GroupPoint last) && last.Enemy == report.Enemy && now - last.Time < fork.AreaShrinkCooldown)
         {
             point = last.Point;
             uncertainty = last.Uncertainty;
+            sourcePosition = last.SourcePosition;
+            pointSource = last.Source;
+            pointTime = last.Time;
         }
         else
         {
-            Enemy known = Bot.EnemyController?.GetEnemy(report.Enemy.ProfileId, false);
-            uncertainty = Shrunk(ComputeUncertainty(report.Enemy, distance, false, known), factor);
+            Enemy known = sourceReaction.Bot.EnemyController?.GetEnemy(report.Enemy.ProfileId, false);
+            uncertainty = Shrunk(sourceReaction.ComputeVisualUncertainty(report.Enemy, distance, known), factor);
             float radius = Mathf.Max(Mathf.Min(uncertainty, ErrorCeiling(fork)), fork.ShotPositionErrorMin);
             Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
             Vector3 delta = new Vector3(offset.x, 0f, offset.y);
             point = SnapKeepingRing(report.Position + delta, report.Position, radius * fork.ShotAreaInnerFraction, radius);
+            sourcePosition = source.Position;
+            pointSource = source;
+            pointTime = now;
             if (_groupPoints.Count > 32)
             {
                 _groupPoints.Clear();
             }
-            _groupPoints[group] = new GroupPoint { Point = point, Uncertainty = uncertainty, Time = now, Enemy = report.Enemy };
+            _groupPoints[group] = new GroupPoint { Point = point, Uncertainty = uncertainty, Time = now, Enemy = report.Enemy, SourcePosition = sourcePosition, Source = pointSource };
             if (fork.ShotReactionLog)
             {
-                LogEvent($"report from {report.From}: new rough point {(point - report.Position).magnitude:0} m from the player (uncertainty {uncertainty:0} m at {distance:0} m, piece #{KnowCount})");
+                LogEvent($"report from {report.From}: new rough point {(point - report.Position).magnitude:0} m from the player (uncertainty {uncertainty:0} m at {distance:0} m, piece #{KnowCount}, visual)");
             }
         }
         group.SetEnemyPos(report.Enemy, point, report.WeaponRoot + (point - report.Position), report.Type);
@@ -2125,23 +2230,27 @@ public class ShotReactionClass : BotComponentClassBase
             BotOwner member = group.Member(i);
             if (member != null && !member.IsDead && manager != null && manager.GetSAIN(member, out BotComponent other) && other.ShotReaction != null)
             {
-                other.ShotReaction.TakeGroupPoint(report.Enemy, point, now);
+                other.ShotReaction.TakeGroupPoint(report.Enemy, point, uncertainty, sourcePosition, pointSource, pointTime, report.From);
             }
         }
     }
 
-    /// <summary>A member of a group takes the group's report point as its own rough area, with its own uncertainty (its own distance, sight and count).</summary>
-    public void TakeGroupPoint(IPlayer enemy, Vector3 point, float now)
+    /// <summary>
+    /// A member of a group takes the group's report as it came from the bot that saw the player: the same point and error, blurred only by this member's distance to that bot
+    /// (the bot that saw the player itself loses nothing). The report does not depend on this bot's own distance to the player.
+    /// </summary>
+    public void TakeGroupPoint(IPlayer enemy, Vector3 point, float groupUncertainty, Vector3 sourcePosition, BotOwner source, float pointTime, string from)
     {
         ForkSettings fork = GlobalSettings.Fork;
-        float factor = NoteInformation(now);
+        NoteInformation(Time.time);
         Enemy known = Bot.EnemyController?.GetEnemy(enemy.ProfileId, false);
-        float distance = (enemy.Position - Bot.Position).magnitude;
-        float uncertainty = Shrunk(ComputeUncertainty(enemy, distance, false, known), factor);
-        RememberVaguePosition(point, uncertainty);
+        bool isSource = source != null && source == Bot.BotOwner;
+        float distance = (sourcePosition - Bot.Position).magnitude;
+        float transmission = isSource ? 0f : TransmissionError(distance);
+        Vector3 held = TakeShared(point, groupUncertainty, transmission, pointTime, "sighting", from ?? "a mate", distance);
         if (fork.ShotAlertMarksKnown && (!fork.ShotReactionPlayerOnly || (enemy as Player)?.IsYourPlayer == true))
         {
-            MarkKnown(known ?? EnemyFor(Bot, enemy), point);
+            MarkKnown(known ?? EnemyFor(Bot, enemy), held);
         }
     }
 
@@ -2168,7 +2277,7 @@ public class ShotReactionClass : BotComponentClassBase
     }
 
     /// <summary>A squadmate's hit or kill: this bot reacts after a short delay (not at once).</summary>
-    public void QueueSquadAlert(Enemy enemy, Vector3 area, string fromName, float delay, float uncertainty)
+    public void QueueSquadAlert(Enemy enemy, Vector3 area, string fromName, float delay, float uncertainty, Vector3 sourcePosition)
     {
         if (!Enabled || _pendingAlertEnemy != null)
         {
@@ -2181,10 +2290,11 @@ public class ShotReactionClass : BotComponentClassBase
         _pendingAlertEnemy = enemy;
         _pendingAlertArea = area;
         _pendingAlertFrom = fromName;
+        _pendingAlertSource = sourcePosition;
         _pendingAlertTime = Time.time + delay;
     }
 
-    public void QueueRogueAlert(Enemy enemy, Vector3 area, string fromName, float delay, float uncertainty, Vector3? center = null, bool forceCover = false)
+    public void QueueRogueAlert(Enemy enemy, Vector3 area, string fromName, float delay, float uncertainty, Vector3 sourcePosition, Vector3? center = null, bool forceCover = false)
     {
         if (!Enabled || _pendingAlertEnemy != null)
         {
@@ -2197,6 +2307,7 @@ public class ShotReactionClass : BotComponentClassBase
         _pendingAlertEnemy = enemy;
         _pendingAlertArea = area;
         _pendingAlertFrom = fromName;
+        _pendingAlertSource = sourcePosition;
         _pendingAlertTime = Time.time + delay;
     }
 
@@ -2216,7 +2327,7 @@ public class ShotReactionClass : BotComponentClassBase
         {
             if (Enemy.IsEnemyActive(enemy))
             {
-                ReceiveSquadAlert(enemy, _pendingAlertArea, _pendingAlertFrom, _pendingAlertUncertainty);
+                ReceiveSquadAlert(enemy, _pendingAlertArea, _pendingAlertFrom, _pendingAlertUncertainty, _pendingAlertSource);
             }
             return;
         }
@@ -2225,7 +2336,7 @@ public class ShotReactionClass : BotComponentClassBase
             return;
         }
         ForkSettings fork = GlobalSettings.Fork;
-        LearnFromAlert(enemy, _pendingAlertUncertainty, alertCenter);
+        LearnFromAlert(enemy, _pendingAlertUncertainty, alertCenter, _pendingAlertArea, _pendingAlertSource);
         if (forceCover && fork.ShotStationaryEnabled && OnStationary())
         {
             // Man-down: no shot area a gun could answer, so a gunner always leaves the gun for cover.
@@ -5671,6 +5782,7 @@ public class ShotReactionClass : BotComponentClassBase
     private Enemy _pendingAlertEnemy;
     private Vector3 _pendingAlertArea;
     private string _pendingAlertFrom;
+    private Vector3 _pendingAlertSource;
     private float _pendingAlertTime;
     private Enemy _enemy;
     private float _noCoverSince = -1f;
