@@ -13,6 +13,9 @@ public class EnemyPartsClass
 
     public bool CanBeSeen { get; private set; }
 
+    /// <summary>Fork: last time one of the parts passed SAIN's own sight check (real raycasts to the colliders). Gates the group reports (see SAINBotLookClass).</summary>
+    public float TimeLastCanBeSeen { get; private set; }
+
     public bool LineOfSight { get; private set; }
 
     public bool CanShoot { get; private set; }
@@ -43,6 +46,10 @@ public class EnemyPartsClass
             {
                 CanBeSeen = true;
             }
+        }
+        if (CanBeSeen)
+        {
+            TimeLastCanBeSeen = currentTime;
         }
     }
 
