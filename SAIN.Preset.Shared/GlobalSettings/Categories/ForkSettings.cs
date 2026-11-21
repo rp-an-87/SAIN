@@ -2080,6 +2080,13 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public float MountedMgMaxUncertainty = 30f;
 
     [DataMember]
+    [Category("Rogue Behaviour/Gunners: suppression")]
+    [Name("Gunner Sighting Error Multiplier")]
+    [Description("A gunner on a mounted gun (machine gun or grenade launcher) takes a sighting that another bot reported (a report, not a shot alert and not its own information) with this multiple of its error, for the two limits above: staying on the gun after an alert and starting a suppression burst. Mounted guns have no real scope. Applied when the gunner decides, not when the report arrives, so a bot that left its gun and retakes it is judged the same way. Repeated reports narrow the area, so a sustained sighting can still bring it under the limit. 1 = off. Related: Machine Gun and Grenade Launcher Max Uncertainty.")]
+    [MinMax(1f, 10f, 10f)]
+    public float MountedSightingErrorMultiplier = 2f;
+
+    [DataMember]
     [Category("Rogue Behaviour/Launcher scatter and ranging in")]
     [Name("Grenade Launcher: Scatter")]
     [Description("Mounted grenade launchers (AGS) get extra aim error that grows with the distance to the target, so a launcher far away lands its grenades well off the player. Machine guns are not affected. Off = vanilla. Related: Applies to a launcher's aim at a seen or known target; Ranging In multiplies it; Max Uncertainty limits suppression.")]

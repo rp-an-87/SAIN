@@ -652,13 +652,14 @@ public class ShotReactionClass : BotComponentClassBase
     private float _sharedKey = -1f;
     private Vector2 _sharedJitter;
     private bool _vagueShared;
+    private bool _vagueSighting;
 
     /// <summary>
     /// Takes information from another bot: the source's area (point and radius) as it came, blurred by the distance to the source (the radius grows by the transmission error, soft capped,
     /// and the point moves by a random offset of at most that growth, so the player stays inside). The offset is rolled once per piece of shared information (key), not on every repeat.
     /// A fresh, tighter area this bot made from its own senses is kept. Returns the position the bot holds afterwards.
     /// </summary>
-    private Vector3 TakeShared(Vector3 point, float sourceUncertainty, float transmission, float key, string what, string from, float distance)
+    private Vector3 TakeShared(Vector3 point, float sourceUncertainty, float transmission, float key, string what, string from, float distance, bool sighting = false)
     {
         float now = Time.time;
         float uncertainty = SoftCap(sourceUncertainty + transmission);
@@ -680,6 +681,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         RememberVaguePosition(point, uncertainty);
         _vagueShared = true;
+        _vagueSighting = sighting;
         if (key < 0f || key != _lastShareLogKey)
         {
             _lastShareLogKey = key;
@@ -957,6 +959,7 @@ public class ShotReactionClass : BotComponentClassBase
     private void RememberVaguePosition(Vector3 position, float uncertainty)
     {
         _vagueShared = false;
+        _vagueSighting = false;
         _vaguePosition = position;
         _vagueShooterPosition = _lastShooterPosition;
         _vaguePositionTime = Time.time;
@@ -1673,6 +1676,15 @@ public class ShotReactionClass : BotComponentClassBase
     /// Why a gunner whose gun covers the shot still cannot answer it (null = it can): the target is beyond the launcher's range cap, or it cannot pinpoint the shooter
     /// (the uncertainty of the rough area is above the limit of its gun). A target it sees is always answered.
     /// </summary>
+    /// <summary>
+    /// A gunner judges a sighting another bot reported with a multiple of its error (a mounted gun has no real scope). Read when the gunner decides, not when the report arrived,
+    /// so a bot that left its gun and takes one again is judged the same way. 1 for any other kind of information (a shot alert, its own senses).
+    /// </summary>
+    private float GunnerErrorMultiplier()
+    {
+        return _vagueSighting ? Mathf.Max(1f, GlobalSettings.Fork.MountedSightingErrorMultiplier) : 1f;
+    }
+
     private string UnableToAnswer(BotStationaryWeaponData stationary, Vector3 point, bool visible)
     {
         if (visible || stationary.CurLink == null)
@@ -1685,10 +1697,11 @@ public class ShotReactionClass : BotComponentClassBase
             return "beyond the grenade launcher's range (cannot reach)";
         }
         float max = stationary.CurLink.IsGrenade() ? fork.MountedGrenadeMaxUncertainty : fork.MountedMgMaxUncertainty;
-        float uncertainty = FreshUncertainty;
+        float multiplier = GunnerErrorMultiplier();
+        float uncertainty = FreshUncertainty * multiplier;
         if (max > 0f && uncertainty > max)
         {
-            return $"too unsure where the shot came from (uncertainty {uncertainty:0} m > {max:0} m, cannot pinpoint)";
+            return $"too unsure where the shot came from (uncertainty {uncertainty:0} m{(multiplier > 1f ? $" = {FreshUncertainty:0} m x{multiplier:0.0} for a mounted gun" : "")} > {max:0} m, cannot pinpoint)";
         }
         return null;
     }
@@ -1854,9 +1867,10 @@ public class ShotReactionClass : BotComponentClassBase
         }
         bool grenade = stationary.CurLink.IsGrenade();
         float maxUncertainty = grenade ? fork.MountedGrenadeMaxUncertainty : fork.MountedMgMaxUncertainty;
-        if (maxUncertainty > 0f && _vagueUncertainty > maxUncertainty)
+        float gunnerError = _vagueUncertainty * GunnerErrorMultiplier();
+        if (maxUncertainty > 0f && gunnerError > maxUncertainty)
         {
-            AreaDiag(now, $"the area is too uncertain ({_vagueUncertainty:0} m > {maxUncertainty:0} m): the gun cannot pinpoint it");
+            AreaDiag(now, $"the area is too uncertain ({gunnerError:0} m{(gunnerError > _vagueUncertainty + 0.01f ? $" = {_vagueUncertainty:0} m x{GunnerErrorMultiplier():0.0} for a mounted gun" : "")} > {maxUncertainty:0} m): the gun cannot pinpoint it");
             _nextAreaSuppress = now + 10f;
             return;
         }
@@ -2247,7 +2261,7 @@ public class ShotReactionClass : BotComponentClassBase
         bool isSource = source != null && source == Bot.BotOwner;
         float distance = (sourcePosition - Bot.Position).magnitude;
         float transmission = isSource ? 0f : TransmissionError(distance);
-        Vector3 held = TakeShared(point, groupUncertainty, transmission, pointTime, "sighting", from ?? "a mate", distance);
+        Vector3 held = TakeShared(point, groupUncertainty, transmission, pointTime, "sighting", from ?? "a mate", distance, true);
         if (fork.ShotAlertMarksKnown && (!fork.ShotReactionPlayerOnly || (enemy as Player)?.IsYourPlayer == true))
         {
             MarkKnown(known ?? EnemyFor(Bot, enemy), held);
