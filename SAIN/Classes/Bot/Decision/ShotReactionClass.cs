@@ -3299,6 +3299,14 @@ public class ShotReactionClass : BotComponentClassBase
 
     private bool TryStartRelocatingAt(float? distanceOverride)
     {
+        long started = ShotPerf.Start();
+        bool result = TryStartRelocatingAtCore(distanceOverride);
+        ShotPerf.Stop(ShotPerf.Relocate, started);
+        return result;
+    }
+
+    private bool TryStartRelocatingAtCore(float? distanceOverride)
+    {
         // A pressure retreat of a Rogue or Goon goes down (off the roof) when it can; any other point is the fallback.
         if (_retreatDown)
         {
@@ -4802,6 +4810,13 @@ public class ShotReactionClass : BotComponentClassBase
 
     private void StartPush(Enemy enemy, float now, bool follow = false)
     {
+        long started = ShotPerf.Start();
+        StartPushCore(enemy, now, follow);
+        ShotPerf.Stop(ShotPerf.Push, started);
+    }
+
+    private void StartPushCore(Enemy enemy, float now, bool follow)
+    {
         _pushStart = now;
         _pushSquadLossChecked = false;
         _pushEnemy = enemy;
@@ -5172,8 +5187,10 @@ public class ShotReactionClass : BotComponentClassBase
             }
             return;
         }
+        long hurtStart = ShotPerf.Start();
         TryHurtRetreat(enemy, now);
         TrySquadLossCloseRetreat(enemy, now);
+        ShotPerf.Stop(ShotPerf.HurtLoss, hurtStart);
         // At close range it is a fight, not a duel: the clock does not run (it would otherwise retreat the moment the range opens).
         if (IsCloseRange(enemy.RealDistance))
         {
@@ -5353,8 +5370,12 @@ public class ShotReactionClass : BotComponentClassBase
         ShotPerf.Stop(ShotPerf.Queues, t);
         ProcessReports(now);
         t = ShotPerf.Start();
+        long part = ShotPerf.Start();
         TrackDuelBursts(now);
+        ShotPerf.Stop(ShotPerf.Bursts, part);
+        part = ShotPerf.Start();
         TickSquadFollow(now);
+        ShotPerf.Stop(ShotPerf.SquadFollow, part);
         TryDuelRetreat(now);
         ShotPerf.Stop(ShotPerf.Duel, t);
         t = ShotPerf.Start();
