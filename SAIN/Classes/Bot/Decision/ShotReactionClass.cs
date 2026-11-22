@@ -2047,7 +2047,7 @@ public class ShotReactionClass : BotComponentClassBase
             {
                 continue;
             }
-            long started = ShotPerf.Start();
+            long started = ShotPerf.StartAlways();
             DeliverReport(report, now);
             ShotPerf.Stop(ShotPerf.Deliver, started);
         }

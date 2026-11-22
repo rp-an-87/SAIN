@@ -62,13 +62,26 @@ internal static class ShotPerf
         return (long)(ms * Stopwatch.Frequency / 1000.0);
     }
 
+    /// <summary>Timers only run while the ShotPerfLog setting is on (read every 10 s, so a change takes up to 10 s). Off by default in normal play: no overhead.</summary>
+    private static bool _enabled;
+
     public static long Start()
+    {
+        return _enabled ? Stopwatch.GetTimestamp() : 0;
+    }
+
+    /// <summary>For the timer the report frame budget depends on: runs whether or not the diagnostics are on.</summary>
+    public static long StartAlways()
     {
         return Stopwatch.GetTimestamp();
     }
 
     public static void Stop(int id, long start)
     {
+        if (start == 0)
+        {
+            return;
+        }
         long dt = Stopwatch.GetTimestamp() - start;
         _total[id] += dt;
         _calls[id]++;
@@ -97,6 +110,7 @@ internal static class ShotPerf
         }
         if (_nextLog <= 0f)
         {
+            _enabled = SAINPlugin.LoadedPreset.GlobalSettings.Fork.ShotPerfLog;
             _nextLog = now + 10f;
             _since = now;
             return;
@@ -104,7 +118,9 @@ internal static class ShotPerf
         float span = Mathf.Max(now - _since, 0.1f);
         _nextLog = now + 10f;
         _since = now;
-        if (SAINPlugin.LoadedPreset.GlobalSettings.Fork.ShotPerfLog)
+        bool wasEnabled = _enabled;
+        _enabled = SAINPlugin.LoadedPreset.GlobalSettings.Fork.ShotPerfLog;
+        if (wasEnabled)
         {
             double toMs = 1000.0 / Stopwatch.Frequency;
             var sb = new System.Text.StringBuilder(220);
