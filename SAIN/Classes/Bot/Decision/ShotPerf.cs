@@ -32,8 +32,12 @@ internal static class ShotPerf
     public const int SquadFollow = 20;
     public const int Bursts = 21;
     public const int Push = 22;
-    private const int COUNT = 23;
-    private static readonly string[] _names = ["update", "apply+cover", "alert fan-out", "report delivery", "cover finder", "  of delivery: vanilla SetEnemyPos", "  of delivery: uncertainty", "  of delivery: navmesh snap", "  of delivery: member loop", "  of update: hooks", "  of update: queues", "  of update: duel+squad follow+retreat", "  of update: pressure retreat", "  of update: area suppression", "  of update: interrupts", "  of update: close diagnostics", "  of delivery: closest member", "  of update: safety net+trace", "  of duel: relocation point search (per attempt)", "  of duel: hurt+squad loss retreats", "  of duel: squad follow", "  of duel: burst tracking", "  of duel: push start"];
+    public const int RelNav = 23;
+    public const int RelLos = 24;
+    public const int RelCover = 25;
+    public const int RelPath = 26;
+    private const int COUNT = 27;
+    private static readonly string[] _names = ["update", "apply+cover", "alert fan-out", "report delivery", "cover finder", "  of delivery: vanilla SetEnemyPos", "  of delivery: uncertainty", "  of delivery: navmesh snap", "  of delivery: member loop", "  of update: hooks", "  of update: queues", "  of update: duel+squad follow+retreat", "  of update: pressure retreat", "  of update: area suppression", "  of update: interrupts", "  of update: close diagnostics", "  of delivery: closest member", "  of update: safety net+trace", "  of duel: relocation point search (per attempt)", "  of duel: hurt+squad loss retreats", "  of duel: squad follow", "  of duel: burst tracking", "  of duel: push start", "  of search: navmesh sampling", "  of search: line of sight", "  of search: cover scan", "  of search: path checks"];
     private static readonly long[] _total = new long[COUNT];
     private static readonly long[] _max = new long[COUNT];
     private static readonly long[] _frameSum = new long[COUNT];

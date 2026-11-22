@@ -3588,6 +3588,25 @@ public class ShotReactionClass : BotComponentClassBase
         return best * 1.5f;
     }
 
+    /// <summary>The best score a destination's cover can add (DestinationCoverQuality returns at most 1 x 1.5).</summary>
+    private const float MAX_DESTINATION_COVER = 1.5f;
+
+    private readonly NavMeshPath _reachPath = new();
+    private static readonly Vector3[] _reachCorners = new Vector3[2];
+
+    /// <summary>Same test as the mover's CanGoToPoint (complete path from the bot, more than one corner) without a new path object and corner array per call.</summary>
+    private bool CanReachFast(Vector3 point)
+    {
+        var navData = Bot.Transform.NavData;
+        if (!navData.IsOnNavMesh || !NavMesh.SamplePosition(point, out NavMeshHit hit, 0.5f, -1))
+        {
+            return false;
+        }
+        return NavMesh.CalculatePath(navData.Position, hit.position, -1, _reachPath)
+            && _reachPath.status == NavMeshPathStatus.PathComplete
+            && _reachPath.GetCornersNonAlloc(_reachCorners) > 1;
+    }
+
     private bool LegOk(Vector3 a, Vector3 b)
     {
         if (!NavMesh.CalculatePath(a, b, NavMesh.AllAreas, _legPath) || _legPath.status != NavMeshPathStatus.PathComplete)
@@ -3830,7 +3849,9 @@ public class ShotReactionClass : BotComponentClassBase
             for (int i = 0; i < RELOCATE_ANGLES.Length; i++)
             {
                 Vector3 direction = Quaternion.Euler(0f, RELOCATE_ANGLES[i], 0f) * away;
+                long perf = ShotPerf.Start();
                 Vector3? sampled = NavMeshHelpers.GetNearbyNavMeshPoint(from + (direction * stepDistance), 4f);
+                ShotPerf.Stop(ShotPerf.RelNav, perf);
                 if (sampled == null)
                 {
                     continue;
@@ -3844,21 +3865,34 @@ public class ShotReactionClass : BotComponentClassBase
                 {
                     continue;
                 }
-                if (_avoidDistance > 0f && PathPassesNear(from, sampled.Value, _avoidPos, _avoidDistance))
-                {
-                    continue;
-                }
-                if (requireBrokenLos && !BreaksLineOfSight(shotArea, sampled.Value))
-                {
-                    continue;
-                }
-                float score = ((2 - step) * 0.25f) + DestinationCoverQuality(sampled.Value, shotArea) + SquadBonus(sampled.Value) + Random.Range(0f, 0.6f)
+                // Cheapest checks first; the expensive ones (collider scan, path calculations) only for a candidate that can still beat the best one so far.
+                float cheap = ((2 - step) * 0.25f) + SquadBonus(sampled.Value) + Random.Range(0f, 0.6f)
                     + (_requireLower ? Mathf.Clamp01((from.y - sampled.Value.y) / 15f) * 0.5f : 0f);
+                if (found && cheap + MAX_DESTINATION_COVER <= bestScore)
+                {
+                    continue;
+                }
+                if (requireBrokenLos)
+                {
+                    perf = ShotPerf.Start();
+                    bool blocked = BreaksLineOfSight(shotArea, sampled.Value);
+                    ShotPerf.Stop(ShotPerf.RelLos, perf);
+                    if (!blocked)
+                    {
+                        continue;
+                    }
+                }
+                perf = ShotPerf.Start();
+                float score = cheap + DestinationCoverQuality(sampled.Value, shotArea);
+                ShotPerf.Stop(ShotPerf.RelCover, perf);
                 if (found && score <= bestScore)
                 {
                     continue;
                 }
-                if (!Bot.Mover.CanGoToPoint(sampled.Value, out _, true))
+                perf = ShotPerf.Start();
+                bool pathOk = !(_avoidDistance > 0f && PathPassesNear(from, sampled.Value, _avoidPos, _avoidDistance)) && CanReachFast(sampled.Value);
+                ShotPerf.Stop(ShotPerf.RelPath, perf);
+                if (!pathOk)
                 {
                     continue;
                 }
