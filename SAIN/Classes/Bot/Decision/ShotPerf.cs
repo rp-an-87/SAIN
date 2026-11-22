@@ -18,8 +18,17 @@ internal static class ShotPerf
     public const int Uncertainty = 6;
     public const int Snap = 7;
     public const int Members = 8;
-    private const int COUNT = 9;
-    private static readonly string[] _names = ["update", "apply+cover", "alert fan-out", "report delivery", "cover finder", "  of delivery: vanilla SetEnemyPos", "  of delivery: uncertainty", "  of delivery: navmesh snap", "  of delivery: member loop"];
+    public const int Hooks = 9;
+    public const int Queues = 10;
+    public const int Duel = 11;
+    public const int Pressure = 12;
+    public const int Suppress = 13;
+    public const int Interrupts = 14;
+    public const int CloseDiag = 15;
+    public const int Lookup = 16;
+    public const int Tail = 17;
+    private const int COUNT = 18;
+    private static readonly string[] _names = ["update", "apply+cover", "alert fan-out", "report delivery", "cover finder", "  of delivery: vanilla SetEnemyPos", "  of delivery: uncertainty", "  of delivery: navmesh snap", "  of delivery: member loop", "  of update: hooks", "  of update: queues", "  of update: duel+squad follow+retreat", "  of update: pressure retreat", "  of update: area suppression", "  of update: interrupts", "  of update: close diagnostics", "  of delivery: closest member", "  of update: safety net+trace"];
     private static readonly long[] _total = new long[COUNT];
     private static readonly long[] _max = new long[COUNT];
     private static readonly long[] _frameSum = new long[COUNT];
@@ -93,6 +102,10 @@ internal static class ShotPerf
             sb.Append("[ShotPerf] ").Append(span.ToString("0")).Append(" s: ");
             for (int i = 0; i < COUNT; i++)
             {
+                if (_calls[i] == 0 && i >= 5)
+                {
+                    continue;
+                }
                 sb.Append(_names[i]).Append(' ').Append((_total[i] * toMs / span).ToString("0.00")).Append(" ms/s (")
                     .Append(_calls[i]).Append(" calls, worst call ").Append((_max[i] * toMs).ToString("0.00"))
                     .Append(", worst frame ").Append((_frameMax[i] * toMs).ToString("0.00")).Append(") | ");

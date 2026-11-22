@@ -2136,7 +2136,9 @@ public class ShotReactionClass : BotComponentClassBase
         ShotReactionClass lead = this;
         if (report.Group != null)
         {
+            long lookup = ShotPerf.Start();
             lead = ClosestMemberReaction(target, report.Enemy);
+            ShotPerf.Stop(ShotPerf.Lookup, lookup);
             if (lead == null)
             {
                 return;
@@ -5340,20 +5342,41 @@ public class ShotReactionClass : BotComponentClassBase
     private void ManualUpdateCore()
     {
         float now = Time.time;
+        long t = ShotPerf.Start();
         HookDeath();
         HookEnemyHit();
+        ShotPerf.Stop(ShotPerf.Hooks, t);
+        t = ShotPerf.Start();
         ProcessCallIn(now);
         ProcessDeferredRadio(now);
         ProcessPendingRogueAlert(now);
+        ShotPerf.Stop(ShotPerf.Queues, t);
         ProcessReports(now);
+        t = ShotPerf.Start();
         TrackDuelBursts(now);
         TickSquadFollow(now);
         TryDuelRetreat(now);
+        ShotPerf.Stop(ShotPerf.Duel, t);
+        t = ShotPerf.Start();
         TryPressureRetreat(now);
+        ShotPerf.Stop(ShotPerf.Pressure, t);
+        t = ShotPerf.Start();
         TickAreaSuppression(now);
+        ShotPerf.Stop(ShotPerf.Suppress, t);
+        t = ShotPerf.Start();
         TryProximityInterrupt(now);
         TryOtherEnemyInterrupt(now);
+        ShotPerf.Stop(ShotPerf.Interrupts, t);
+        t = ShotPerf.Start();
         LogCloseDiagnostics(now);
+        ShotPerf.Stop(ShotPerf.CloseDiag, t);
+        t = ShotPerf.Start();
+        TickSafetyNet(now);
+        ShotPerf.Stop(ShotPerf.Tail, t);
+    }
+
+    private void TickSafetyNet(float now)
+    {
         // Safety net: the decision hook only runs when this shooter is the bot's chosen enemy and nothing earlier in the decision order wins
         // (self actions, grenade avoidance, squad decisions ...). Without this a state could stay set, and keep rules like the sprint override, for good.
         if (Outcome != EShotReaction.None || Relocating)
