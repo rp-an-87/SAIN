@@ -110,6 +110,13 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
     public bool ShotPerfLog = true;
 
     [DataMember]
+    [Category("Shot Reaction: Basics/Logging")]
+    [Name("Report Delivery Frame Budget (ms)")]
+    [Description("Delivering a Rogue report to its group costs a few ms. All bots together deliver reports until this many ms are used in one frame; the rest wait for the next frame (the first report of a frame always goes through). 0 = no limit. Related: Works with Performance Log, which shows how many reports were pushed to a later frame.")]
+    [MinMax(0f, 5f, 10f)]
+    public float ReportFrameBudgetMs = 1f;
+
+    [DataMember]
     [Category("Shot Reaction: Knowing Where The Shooter Is/Position error")]
     [Name("Position Error Max")]
     [Description("The position error / uncertainty (meters) up to which it is taken as it is. Above it the value only creeps toward Position Error Soft Max (see there), so it takes extreme circumstances to get near that. Related: Knee of the cap on the ring radius and the uncertainty; concealment, audibility and environment widen the error before it. Set Soft Max at or below this for a hard ceiling.")]

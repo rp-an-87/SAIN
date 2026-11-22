@@ -14,8 +14,12 @@ internal static class ShotPerf
     public const int FanOut = 2;
     public const int Deliver = 3;
     public const int Finder = 4;
-    private const int COUNT = 5;
-    private static readonly string[] _names = ["update", "apply+cover", "alert fan-out", "report delivery", "cover finder"];
+    public const int SetEnemyPos = 5;
+    public const int Uncertainty = 6;
+    public const int Snap = 7;
+    public const int Members = 8;
+    private const int COUNT = 9;
+    private static readonly string[] _names = ["update", "apply+cover", "alert fan-out", "report delivery", "cover finder", "  of delivery: vanilla SetEnemyPos", "  of delivery: uncertainty", "  of delivery: navmesh snap", "  of delivery: member loop"];
     private static readonly long[] _total = new long[COUNT];
     private static readonly long[] _max = new long[COUNT];
     private static readonly long[] _frameSum = new long[COUNT];
@@ -27,6 +31,18 @@ internal static class ShotPerf
 
     public static int ReportCalls;
     public static int ReportAccepted;
+    public static int ReportDeferred;
+
+    /// <summary>Ticks spent in this part so far in the current frame.</summary>
+    public static long FrameTicks(int id)
+    {
+        return _frame[id] == Time.frameCount ? _frameSum[id] : 0;
+    }
+
+    public static long TicksFromMs(float ms)
+    {
+        return (long)(ms * Stopwatch.Frequency / 1000.0);
+    }
 
     public static long Start()
     {
@@ -81,7 +97,7 @@ internal static class ShotPerf
                     .Append(_calls[i]).Append(" calls, worst call ").Append((_max[i] * toMs).ToString("0.00"))
                     .Append(", worst frame ").Append((_frameMax[i] * toMs).ToString("0.00")).Append(") | ");
             }
-            sb.Append("vanilla report calls ").Append(ReportCalls).Append(", taken ").Append(ReportAccepted);
+            sb.Append("vanilla report calls ").Append(ReportCalls).Append(", taken ").Append(ReportAccepted).Append(", reports pushed to a later frame ").Append(ReportDeferred);
             global::SAIN.Logger.LogInfoAlways(sb.ToString());
         }
         for (int i = 0; i < COUNT; i++)
@@ -93,5 +109,6 @@ internal static class ShotPerf
         }
         ReportCalls = 0;
         ReportAccepted = 0;
+        ReportDeferred = 0;
     }
 }

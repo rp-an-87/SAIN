@@ -2027,11 +2027,18 @@ public class ShotReactionClass : BotComponentClassBase
 
     private void ProcessReports(float now)
     {
+        long budget = ShotPerf.TicksFromMs(GlobalSettings.Fork.ReportFrameBudgetMs);
         for (int i = _reports.Count - 1; i >= 0; i--)
         {
             PendingReport report = _reports[i];
             if (now < report.Time)
             {
+                continue;
+            }
+            // Delivering a report costs a few ms, so all bots together deliver within a time budget per frame; the first one of a frame always goes through.
+            if (budget > 0 && ShotPerf.FrameTicks(ShotPerf.Deliver) >= budget)
+            {
+                ShotPerf.ReportDeferred++;
                 continue;
             }
             _reports.RemoveAt(i);
@@ -2187,7 +2194,9 @@ public class ShotReactionClass : BotComponentClassBase
         ForkSettings fork = GlobalSettings.Fork;
         if (!fork.RogueReportRough || report.Enemy == null)
         {
+            long plain = ShotPerf.Start();
             group.SetEnemyPos(report.Enemy, report.Position, report.WeaponRoot, report.Type);
+            ShotPerf.Stop(ShotPerf.SetEnemyPos, plain);
             return;
         }
         float factor = NoteInformation(now);
@@ -2218,12 +2227,16 @@ public class ShotReactionClass : BotComponentClassBase
         }
         else
         {
+            long uncStart = ShotPerf.Start();
             Enemy known = sourceReaction.Bot.EnemyController?.GetEnemy(report.Enemy.ProfileId, false);
             uncertainty = Shrunk(sourceReaction.ComputeVisualUncertainty(report.Enemy, distance, known), factor);
+            ShotPerf.Stop(ShotPerf.Uncertainty, uncStart);
             float radius = Mathf.Max(Mathf.Min(uncertainty, ErrorCeiling(fork)), fork.ShotPositionErrorMin);
             Vector2 offset = RingOffset(radius * fork.ShotAreaInnerFraction, radius);
             Vector3 delta = new Vector3(offset.x, 0f, offset.y);
+            long snapStart = ShotPerf.Start();
             point = SnapKeepingRing(report.Position + delta, report.Position, radius * fork.ShotAreaInnerFraction, radius);
+            ShotPerf.Stop(ShotPerf.Snap, snapStart);
             sourcePosition = source.Position;
             pointSource = source;
             pointTime = now;
@@ -2237,7 +2250,10 @@ public class ShotReactionClass : BotComponentClassBase
                 LogEvent($"report from {report.From}: new rough point {(point - report.Position).magnitude:0} m from the player (uncertainty {uncertainty:0} m at {distance:0} m, piece #{KnowCount}, visual)");
             }
         }
+        long posStart = ShotPerf.Start();
         group.SetEnemyPos(report.Enemy, point, report.WeaponRoot + (point - report.Position), report.Type);
+        ShotPerf.Stop(ShotPerf.SetEnemyPos, posStart);
+        long memberStart = ShotPerf.Start();
         BotManagerComponent manager = BotManagerComponent.Instance;
         for (int i = 0; i < group.MembersCount; i++)
         {
@@ -2247,6 +2263,7 @@ public class ShotReactionClass : BotComponentClassBase
                 other.ShotReaction.TakeGroupPoint(report.Enemy, point, uncertainty, sourcePosition, pointSource, pointTime, report.From);
             }
         }
+        ShotPerf.Stop(ShotPerf.Members, memberStart);
     }
 
     /// <summary>
