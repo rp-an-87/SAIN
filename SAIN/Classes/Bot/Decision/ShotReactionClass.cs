@@ -2477,6 +2477,12 @@ public class ShotReactionClass : BotComponentClassBase
                 return false;
             }
         }
+        if (Bot.Cover.NoCoverGaveUp && Outcome != EShotReaction.Fight)
+        {
+            // The bot holds "cover" that does not exist (the cover finder found none, even in the wide search): the hold is over, normal combat decides.
+            End("no cover to hold, gave up seeking it");
+            return false;
+        }
         if (_postRetreat)
         {
             UpdatePostRetreatHold(now);
