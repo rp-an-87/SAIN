@@ -81,7 +81,10 @@ public class BotPathDataManual(BotComponent bot, IBotPathFinder pathFinder) : IB
 #endif
 
         CurrentSprintStatus = GetSprintStatus(botPosition);
-        SetSprint(CurrentSprintStatus == EBotSprintStatus.Running);
+        // Fork: a shut door ahead ends the sprint so the bot arrives at walking pace and the door interaction can start in time.
+        bool sprint = CurrentSprintStatus == EBotSprintStatus.Running
+            && !Bot.DoorOpener.ShallBrakeForDoor(CurrentCornerMoveData.CornerDirectionFromBotNormal);
+        SetSprint(sprint);
 
         bool slowAtCorners =
             Bot.GoalEnemy != null && Bot.GoalEnemy.Events.OnSearch.Value && Bot.Info.PersonalitySettings.Search.SlowAtCorners;

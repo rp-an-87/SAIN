@@ -150,6 +150,98 @@ public class DoorOpener : BotComponentClassBase
 
     public bool SelectDoor(out EInteractionType interactionType, out DoorDataStruct currentDoor, IBotPathData pathData)
     {
+        bool selected = SelectDoorCore(out interactionType, out currentDoor, pathData);
+        if (!selected)
+        {
+            LogMissedDoor();
+        }
+        return selected;
+    }
+
+    // ---- Fork: fast bots (rush, push) ----
+    // A sprinting bot covers 3 m in about half a second, so a door list refreshed every 0.5 s showed it the door when it was already at it. The distances are now
+    // refreshed every tick while the bot is fast, the interaction cast reaches further with speed, and the path mover ends the sprint when a shut door is ahead.
+
+    private const float FAST_SPEED = 2.5f;
+    private const float BRAKE_BASE = 1.5f;
+    private const float BRAKE_PER_SPEED = 0.7f;
+    private const float BRAKE_MAX = 7f;
+    private const float BRAKE_MIN_DOT = 0.7f;
+    private const float MISSED_DOOR_DISTANCE_SQR = 1f;
+    private float _nextMissedLogTime;
+
+    private float FlatSpeed()
+    {
+        Vector3 velocity = Bot.Player.MovementContext.Velocity;
+        velocity.y = 0f;
+        return velocity.magnitude;
+    }
+
+    /// <summary>
+    /// True if the bot is fast and a shut door it can open lies ahead within braking range: the path mover ends the sprint so the bot arrives at walking pace.
+    /// Uses the door distances SelectDoor refreshed this tick.
+    /// </summary>
+    public bool ShallBrakeForDoor(Vector3 moveDirectionNormal)
+    {
+        if (Interacting)
+        {
+            return false;
+        }
+        float speed = FlatSpeed();
+        if (speed < FAST_SPEED)
+        {
+            return false;
+        }
+        float brake = Mathf.Min(BRAKE_MAX, BRAKE_BASE + (speed * BRAKE_PER_SPEED));
+        float brakeSqr = brake * brake;
+        float time = Time.time;
+        for (int i = 0; i < _allDoors.Count; i++)
+        {
+            DoorDataStruct door = _allDoors[i];
+            if (door.Door == null || door.Door.DoorState != EDoorState.Shut || !door.CanInteractByTime(time))
+            {
+                continue;
+            }
+            if (door.CurrentSqrMagnitude > brakeSqr || Vector3.Dot(door.DirectionNormal, moveDirectionNormal) < BRAKE_MIN_DOT)
+            {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Diagnostic: a fast bot is within 1 m of a shut door and no interaction started. Rate limited.</summary>
+    private void LogMissedDoor()
+    {
+        if (Interacting || _nextMissedLogTime > Time.time)
+        {
+            return;
+        }
+        float speed = FlatSpeed();
+        if (speed < FAST_SPEED)
+        {
+            return;
+        }
+        float time = Time.time;
+        for (int i = 0; i < _allDoors.Count; i++)
+        {
+            DoorDataStruct door = _allDoors[i];
+            if (door.Door == null || door.Door.DoorState != EDoorState.Shut || door.CurrentSqrMagnitude > MISSED_DOOR_DISTANCE_SQR)
+            {
+                continue;
+            }
+            _nextMissedLogTime = time + 2f;
+            Logger.LogInfo(
+                $"[DoorFork] {Bot.name} missed door:{door.Id} dist:{Mathf.Sqrt(door.CurrentSqrMagnitude):0.0} speed:{speed:0.0} "
+                    + $"sprint:{Bot.Player.IsSprintEnabled} cooldown:{!door.CanInteractByTime(time)}"
+            );
+            return;
+        }
+    }
+
+    private bool SelectDoorCore(out EInteractionType interactionType, out DoorDataStruct currentDoor, IBotPathData pathData)
+    {
         const float RAY_LENGTH = 3f;
         Vector3 botPosition = Bot.Position;
         float time = Time.time;
@@ -188,7 +280,8 @@ public class DoorOpener : BotComponentClassBase
         DoorDataStruct data = ActiveDoor;
         // Fork: closing is opt-in. A door that is already open is left alone, otherwise the bot closes the door it just opened.
         bool allowClose = GlobalSettingsClass.Instance.Fork.BotsCloseDoors;
-        if (!RaycastToDoors(out interactionType, ref data, out int index, RAY_LENGTH, ray, _interactionDoors, allowClose))
+        float castDistance = Mathf.Max(1.5f, (FlatSpeed() * 0.3f) + 0.9f);
+        if (!RaycastToDoors(out interactionType, ref data, out int index, RAY_LENGTH, ray, _interactionDoors, allowClose, castDistance))
         {
             currentDoor = ActiveDoor;
             return false;
@@ -265,29 +358,33 @@ public class DoorOpener : BotComponentClassBase
 
     private void SearchForDoors(Vector3 botPosition, float time)
     {
-        if (_nextDoorUpdateTime < time)
+        // Fork: a fast bot refreshes the distances every tick and looks for a new voxel every 0.2 s.
+        bool fast = FlatSpeed() >= FAST_SPEED;
+        bool voxelTick = _nextDoorUpdateTime < time;
+        if (voxelTick || fast)
         {
-            _nextDoorUpdateTime = time + DOOR_UPDATE_INTERVAL;
-            BotOwner.AIData.SetPosToVoxel(botPosition);
-
-            var lastVoxel = CurrentVoxel;
-            CurrentVoxel = BotOwner.VoxelesPersonalData.CurVoxel;
-
-            if (lastVoxel != CurrentVoxel)
+            if (voxelTick)
             {
-                _allDoors.Clear();
-                if (CurrentVoxel != null)
+                _nextDoorUpdateTime = time + (fast ? 0.2f : DOOR_UPDATE_INTERVAL);
+                BotOwner.AIData.SetPosToVoxel(botPosition);
+
+                var lastVoxel = CurrentVoxel;
+                CurrentVoxel = BotOwner.VoxelesPersonalData.CurVoxel;
+
+                if (lastVoxel != CurrentVoxel)
                 {
-                    //Logger.LogDebug($"{CurrentVoxel.DoorLinks.Count} doors in voxel");
-                    foreach (var link in CurrentVoxel.DoorLinks)
+                    _allDoors.Clear();
+                    if (CurrentVoxel != null)
                     {
-                        if (IsDoorOpenable(link.Door))
+                        foreach (var link in CurrentVoxel.DoorLinks)
                         {
-                            _allDoors.Add(new DoorDataStruct(link));
+                            if (IsDoorOpenable(link.Door))
+                            {
+                                _allDoors.Add(new DoorDataStruct(link));
+                            }
                         }
                     }
                 }
-                //Logger.LogDebug($"{AllDoors.Count} door data created");
             }
 
             _interactionDoors.Clear();
@@ -336,11 +433,11 @@ public class DoorOpener : BotComponentClassBase
         float RAY_LENGTH,
         Ray ray,
         List<DoorDataStruct> doors,
-        bool allowClose
+        bool allowClose,
+        float SPHERECAST_DISTANCE
     )
     {
         const float SPHERECAST_RADIUS = 0.15f;
-        const float SPHERECAST_DISTANCE = 1.5f;
         if (Physics.SphereCast(ray, SPHERECAST_RADIUS, out RaycastHit hit, SPHERECAST_DISTANCE, LayersMaskController.PlayerStaticDoorMask))
         {
 #if DEBUG
