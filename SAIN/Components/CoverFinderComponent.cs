@@ -121,7 +121,7 @@ public class CoverFinderComponent : BotComponentBase
                 CurrentStatus = ECoverFinderStatus.SearchingColliders;
 
                 // Fork: during a shot reaction the search box is wider and taller (a bot on a roof also sees cover inside and below the building).
-                bool wide = Bot.ShotReaction.WideCoverSearch;
+                bool wide = Bot.ShotReaction.WideCoverSearch || Bot.Cover.ExtendedSearch;
                 if (wide != _wideSearch)
                 {
                     _wideSearch = wide;

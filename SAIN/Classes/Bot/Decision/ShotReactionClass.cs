@@ -3983,6 +3983,49 @@ public class ShotReactionClass : BotComponentClassBase
         return true;
     }
 
+    /// <summary>
+    /// Fork: the no-cover decision for a bot the reaction does not manage (it saw the player, or the reaction is over): the same fight-or-flight roll as HandleNoCover,
+    /// planned against the player's real position when the bot knows it. True = a retreat started; false = fight (the caller stops seeking cover and the combat decision shoots).
+    /// </summary>
+    public bool HandleNoCoverAny(Enemy enemy)
+    {
+        if (!Enabled || enemy == null || Relocating)
+        {
+            return Relocating;
+        }
+        float now = Time.time;
+        ForkSettings fork = GlobalSettings.Fork;
+        float distance = enemy.RealDistance;
+        float reach = Mathf.Max(Bot.Info.WeaponInfo.EffectiveWeaponDistance, 1f);
+        float ratio = distance / reach;
+        float score = NoCoverFightScore(distance, ratio, out string why);
+        float fightChance = 1f / (1f + Mathf.Exp(-score));
+        if (Random.value < fightChance)
+        {
+            LogEvent($"no cover (not managed): fight (fight chance {fightChance:0.00}: {why})");
+            return false;
+        }
+        float min = Mathf.Min(fork.ShotRelocateMinDistance, fork.ShotRelocateMaxDistance);
+        float max = Mathf.Max(fork.ShotRelocateMinDistance, fork.ShotRelocateMaxDistance);
+        float fleeDistance = Mathf.Lerp(max, min, Mathf.InverseLerp(0.5f, 1.5f, ratio));
+        _enemy = enemy;
+        _forcedRetreat = true;
+        bool known = KnowsPosition(enemy, out Vector3 knownPosition);
+        _requireHidden = known && fork.ShotKnownRetreatNeedsHidden;
+        _knownThreat = known ? knownPosition : null;
+        bool started = TryStartRelocating(fleeDistance);
+        _knownThreat = null;
+        _requireHidden = false;
+        if (started)
+        {
+            LogEvent($"no cover (not managed): flight (fight chance {fightChance:0.00}: {why}), fleeing {fleeDistance:0} m");
+            return true;
+        }
+        _forcedRetreat = false;
+        LogEvent("no cover (not managed): nowhere to flee to, fights");
+        return false;
+    }
+
     /// <summary>Positive = fight, negative = flee. Soft: the result feeds a logistic chance, not a threshold.</summary>
     private float NoCoverFightScore(float distance, float ratio, out string why)
     {

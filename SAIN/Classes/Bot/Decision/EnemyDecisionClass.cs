@@ -207,6 +207,13 @@ public class EnemyDecisionClass : BotBase
             DecisionReasons.AppendLine($"8. Seek Cover: [{true}, {Bot.Cover.CoverSeekingState}]");
         }
 #endif
+        // Fork: no cover for a long time (see SAINCoverClass.NoCoverLadder): shoot if the enemy is in sight, else search, instead of seeking cover forever.
+        if (Bot.Cover.NoCoverGaveUp)
+        {
+            result = enemy.IsVisible ? ECombatDecision.StandAndShoot : (canTakeAggressiveAction ? ECombatDecision.Search : ECombatDecision.StandAndShoot);
+            return true;
+        }
+
         result = ECombatDecision.SeekCover;
         return true;
     }

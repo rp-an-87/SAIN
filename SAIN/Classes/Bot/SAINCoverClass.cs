@@ -336,7 +336,13 @@ public class SAINCoverClass : BotComponentClassBase
     /// <summary>True if no bush may be used by this bot right now (season ban or combat ban). The view test is per bush, see filterBushes.</summary>
     public bool BushBanNow()
     {
-        return BushesBannedBySeason() || CombatBushBanActive(Bot.GoalEnemy);
+        return SeasonBanFor(Bot.GoalEnemy) || CombatBushBanActive(Bot.GoalEnemy);
+    }
+
+    /// <summary>Fork: the season ban only applies against the player (it exists so bots do not hide in bushes that are not there to look at). Bots fighting other bots may use any bush.</summary>
+    private static bool SeasonBanFor(Enemy enemy)
+    {
+        return BushesBannedBySeason() && (enemy == null || !enemy.IsAI);
     }
 
     private const float BUSH_VIEW_DOT = 0.64f;
@@ -360,14 +366,17 @@ public class SAINCoverClass : BotComponentClassBase
     }
 
     private float _nextBushLogTime;
+    private string _lastBushLogKey;
 
-    private void LogBushBan(string message)
+    /// <summary>One line per cause: the same key is logged again only after 10 s (a bot stuck without cover used to repeat the line every second).</summary>
+    private void LogBushBan(string key, string message)
     {
-        if (_nextBushLogTime > Time.time || !GlobalSettingsClass.Instance.Fork.ShotReactionLog)
+        if ((key == _lastBushLogKey && _nextBushLogTime > Time.time) || !GlobalSettingsClass.Instance.Fork.ShotReactionLog)
         {
             return;
         }
-        _nextBushLogTime = Time.time + 1f;
+        _lastBushLogKey = key;
+        _nextBushLogTime = Time.time + 10f;
         Logger.LogInfoAlways($"[CombatCover] t={Time.time:0.0} {Bot.ShotReaction.Tag}: {message}");
     }
 
@@ -382,8 +391,8 @@ public class SAINCoverClass : BotComponentClassBase
             return true;
         }
         ForkSettings fork = GlobalSettingsClass.Instance.Fork;
-        bool season = BushesBannedBySeason();
         Enemy enemy = Bot.GoalEnemy;
+        bool season = SeasonBanFor(enemy);
         bool combat = !season && CombatBushBanActive(enemy);
         bool view = !season && !combat && fork.CombatBushBan && fork.CombatBushView && enemy != null && !enemy.IsAI;
         if (!season && !combat && !view)
@@ -407,10 +416,10 @@ public class SAINCoverClass : BotComponentClassBase
         string why = season ? "season has no foliage" : combat ? "the player has met the bot" : "in the player's view";
         if (_coverPoints.Count == 0)
         {
-            LogBushBan($"bushes banned ({why}): {removed} candidate(s) dropped, no cover left (no-cover behaviour instead)");
+            LogBushBan(why + "/none", $"bushes banned ({why}): {removed} candidate(s) dropped, no cover left (no-cover behaviour instead, decision {Bot.Decision.CurrentCombatDecision})");
             return false;
         }
-        LogBushBan($"bushes banned ({why}): {removed} bush candidate(s) dropped, {_coverPoints.Count} left");
+        LogBushBan(why + "/some", $"bushes banned ({why}): {removed} bush candidate(s) dropped, {_coverPoints.Count} left");
         return true;
     }
 
@@ -917,11 +926,11 @@ public class SAINCoverClass : BotComponentClassBase
 
         _timeLastUpdate = Time.time;
 
-        if (BushesBannedBySeason())
+        if (SeasonBanFor(enemy))
         {
             if (IsFoliage(CoverInUse))
             {
-                LogBushBan("season has no foliage: leaving the bush it held");
+                LogBushBan("leave", "season has no foliage: leaving the bush it held");
                 CoverInUse = null;
             }
             if (IsFoliage(CoverPoint_MovingTo))
@@ -1006,18 +1015,97 @@ public class SAINCoverClass : BotComponentClassBase
                 }
                 if (!TryFleeFromShot())
                 {
-                    LogNoCover("NO COVER EDGE CASE: no cover points and no flee, falling back to the dogfight move (walks toward the enemy)");
-                    const bool AGGRESSIVE_NO_COVER = true;
-                    Bot.Mover.DogFight.DogFightMove(AGGRESSIVE_NO_COVER, enemy);
+                    NoCoverLadder(enemy);
                 }
                 SetCoverSeekingState(ECoverSeekingState.NoCover);
                 _shallSprint = false;
             }
             else
             {
+                _noCoverStart = -1f;
                 SetCoverSeekingState(ECoverSeekingState.MoveTo);
             }
         }
+    }
+
+    // ---- Fork: no cover found (replaces the old "walk toward the enemy") ----
+    // Ladder: normal search -> one wide search (also lasts a few seconds in the finder) -> fight or flight (the shot reaction's no-cover roll, for any enemy)
+    // -> hard limit: SeekCover is dropped for NO_COVER_GIVE_UP_TIME so the combat decision picks something else (stand and shoot, search).
+
+    private const float NO_COVER_EXTEND_AFTER = 1f;
+    private const float NO_COVER_EXTEND_WAIT = 2.5f;
+    private const float NO_COVER_HARD_LIMIT = 10f;
+    private const float NO_COVER_GIVE_UP_TIME = 12f;
+    private const float NO_COVER_EXTEND_KEEP = 8f;
+
+    private float _noCoverStart = -1f;
+    private float _noCoverLastTick;
+    private bool _noCoverExtended;
+    private bool _noCoverDecided;
+    private float _extendedUntil;
+    private float _noCoverGaveUpUntil;
+
+    /// <summary>The cover finder searches the wide box (see CoverFinderComponent) because the normal one found nothing.</summary>
+    public bool ExtendedSearch
+    {
+        get { return Time.time < _extendedUntil; }
+    }
+
+    /// <summary>The bot found no cover for a long time: the combat decision must not pick SeekCover now.</summary>
+    public bool NoCoverGaveUp
+    {
+        get { return Time.time < _noCoverGaveUpUntil; }
+    }
+
+    private void NoCoverLadder(Enemy enemy)
+    {
+        float now = Time.time;
+        if (_noCoverStart < 0f || now - _noCoverLastTick > 1.5f)
+        {
+            _noCoverStart = now;
+            _noCoverExtended = false;
+            _noCoverDecided = false;
+        }
+        _noCoverLastTick = now;
+        float elapsed = now - _noCoverStart;
+        if (elapsed < NO_COVER_EXTEND_AFTER)
+        {
+            return;
+        }
+        if (!_noCoverExtended)
+        {
+            _noCoverExtended = true;
+            _extendedUntil = now + NO_COVER_EXTEND_KEEP;
+            LogNoCover("no cover: extending the search (wide box)");
+            return;
+        }
+        if (elapsed < NO_COVER_EXTEND_AFTER + NO_COVER_EXTEND_WAIT)
+        {
+            return;
+        }
+        if (!_noCoverDecided)
+        {
+            _noCoverDecided = true;
+            if (Bot.ShotReaction.HandleNoCoverAny(enemy))
+            {
+                // Retreating: the shot reaction owns the bot now.
+                _noCoverStart = -1f;
+                return;
+            }
+            GiveUpCover("fight (no cover after the wide search)");
+            return;
+        }
+        if (elapsed >= NO_COVER_HARD_LIMIT)
+        {
+            GiveUpCover($"hard limit ({elapsed:0} s without cover)");
+        }
+    }
+
+    private void GiveUpCover(string why)
+    {
+        _noCoverGaveUpUntil = Time.time + NO_COVER_GIVE_UP_TIME;
+        _noCoverStart = -1f;
+        LogNoCover($"no cover: giving up cover seeking for {NO_COVER_GIVE_UP_TIME:0} s, {why}");
     }
 
     private float GetInterval()
