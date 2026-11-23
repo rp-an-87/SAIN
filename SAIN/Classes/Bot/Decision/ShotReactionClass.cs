@@ -2422,6 +2422,7 @@ public class ShotReactionClass : BotComponentClassBase
         }
         if (!IsManaging(enemy))
         {
+            LogDeclined(enemy, "not managing this enemy");
             return false;
         }
         float now = Time.time;
@@ -2509,7 +2510,21 @@ public class ShotReactionClass : BotComponentClassBase
             return true;
         }
         SprintWhileInvestigating = false;
+        LogDeclined(enemy, "reaction has no decision left");
         return false;
+    }
+
+    private float _nextDeclinedLog;
+
+    /// <summary>Diagnostic: a reaction that is still on (Outcome set, or a post-retreat hold) but leaves the decision to normal SAIN. One line per 3 s.</summary>
+    private void LogDeclined(Enemy enemy, string why)
+    {
+        if (Outcome == EShotReaction.None || _nextDeclinedLog > Time.time || !GlobalSettings.Fork.ShotReactionLog)
+        {
+            return;
+        }
+        _nextDeclinedLog = Time.time + 3f;
+        LogEvent($"declined to decide ({why}): outcome {Outcome}, postRetreat {_postRetreat}, hold {Mathf.Max(0f, _hideUntil - Time.time):0} s left, goal enemy {(enemy != null ? enemy.EnemyName : "none")}, reaction enemy {(_enemy != null ? _enemy.EnemyName : "none")}, cover gave up {Bot.Cover.NoCoverGaveUp}");
     }
 
     /// <summary>
