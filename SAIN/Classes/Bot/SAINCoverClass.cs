@@ -1068,19 +1068,16 @@ public class SAINCoverClass : BotComponentClassBase
         }
         _noCoverLastTick = now;
         float elapsed = now - _noCoverStart;
-        if (elapsed < NO_COVER_EXTEND_AFTER)
-        {
-            return;
-        }
-        if (!_noCoverExtended)
+        if (elapsed >= NO_COVER_EXTEND_AFTER && !_noCoverExtended)
         {
             _noCoverExtended = true;
             _extendedUntil = now + NO_COVER_EXTEND_KEEP;
             LogNoCover("no cover: extending the search (wide box)");
-            return;
         }
         if (elapsed < NO_COVER_EXTEND_AFTER + NO_COVER_EXTEND_WAIT)
         {
+            // Never stand still while waiting: strafe and back away from the enemy (non-aggressive dogfight move, it never advances).
+            Bot.Mover.DogFight.DogFightMove(false, enemy);
             return;
         }
         if (!_noCoverDecided)
