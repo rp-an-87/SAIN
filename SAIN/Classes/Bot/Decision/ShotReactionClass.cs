@@ -3285,6 +3285,10 @@ public class ShotReactionClass : BotComponentClassBase
     /// </summary>
     private bool TryStartRelocating(float? distanceOverride = null)
     {
+        if (GlobalSettings.Fork.BossesNeverFlee && Bot.Info.Profile.ForkGroup == EForkBrainGroup.Boss)
+        {
+            return false;
+        }
         bool log = GlobalSettings.Fork.ShotReactionLog;
         _quietRelocate = distanceOverride.HasValue;
         bool started = TryStartRelocatingAt(distanceOverride);
@@ -5265,7 +5269,8 @@ public class ShotReactionClass : BotComponentClassBase
     private void TryDuelRetreat(float now)
     {
         ForkSettings fork = GlobalSettings.Fork;
-        if (!fork.ShotDuelRetreatEnabled || now < _nextDuelCheck || !Enabled)
+        if (!fork.ShotDuelRetreatEnabled || now < _nextDuelCheck || !Enabled
+            || (fork.BossesNeverFlee && Bot.Info.Profile.ForkGroup == EForkBrainGroup.Boss))
         {
             return;
         }

@@ -69,6 +69,12 @@ public class ForkSettings : SAINSettingsBase<ForkSettings>, ISAINSettings
 
     [DataMember]
     [Category("Shot Reaction: Basics/Brain filter")]
+    [Name("Bosses Never Flee")]
+    [Description("Bosses (not the Goons) never relocate away from the player: no duel retreat, no flight when there is no cover, no retreat after a hit. They keep the rest of the shot reaction (position error, fight, hold, advance). Without this a boss that cannot hit the player gives up after about 8 s and runs to the other side of the map. Related: needs Brain: Bosses; followers and Goons are not affected.")]
+    public bool BossesNeverFlee = true;
+
+    [DataMember]
+    [Category("Shot Reaction: Basics/Brain filter")]
     [Name("Brain: Boss Followers")]
     [Description("Boss guards (not the Goons) use the fork's shot reaction. Related: Applies to all Shot Reaction settings (roll, duel, pressure, alerts), not only this section. Rogue Behaviour also needs Rogues or Goons on. Range has its own brain filter.")]
     public bool ShotBrainFollower = true;
