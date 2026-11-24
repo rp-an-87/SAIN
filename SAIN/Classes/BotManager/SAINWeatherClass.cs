@@ -14,6 +14,9 @@ public class SAINWeatherClass : BotManagerBase
 
     public float GainSightModifier { get; private set; } = 1f;
 
+    // 1 = no dense fog effect. Applied after the weather minimums (see SAINVisionClass), so the minimums cannot cancel it.
+    public float DenseFogFactor { get; private set; } = 1f;
+
     public float RainSoundModifierOutdoor { get; private set; } = 1f;
     public float RainSoundModifierIndoor { get; private set; } = 1f;
 
@@ -32,6 +35,7 @@ public class SAINWeatherClass : BotManagerBase
             _weatherCheckTime = currentTime + WEATHER_VISION_UPDATE_FREQ;
             VisionDistanceModifier = CalcWeatherVisibility();
             GainSightModifier = 2f - VisionDistanceModifier;
+            DenseFogFactor = CalcDenseFogFactor();
         }
         if (_rainCheckTime < currentTime)
         {
@@ -67,6 +71,27 @@ public class SAINWeatherClass : BotManagerBase
         //}
 
         return weathermodifier;
+    }
+
+    private float CalcDenseFogFactor()
+    {
+        var settings = _timeSettings;
+        if (!settings.DenseFogEnabled)
+        {
+            return 1f;
+        }
+        IWeatherCurve weatherCurve = WeatherController.Instance?.WeatherCurve;
+        if (weatherCurve == null)
+        {
+            return 1f;
+        }
+        float span = settings.DenseFogFull - settings.DenseFogStart;
+        if (span <= 0.0001f)
+        {
+            return weatherCurve.Fog >= settings.DenseFogFull ? Mathf.Clamp(settings.DenseFogCoef, 0.01f, 1f) : 1f;
+        }
+        float t = Mathf.Clamp01((weatherCurve.Fog - settings.DenseFogStart) / span);
+        return Mathf.Lerp(1f, Mathf.Clamp(settings.DenseFogCoef, 0.01f, 1f), t);
     }
 
     private float FogModifier(float Fog)

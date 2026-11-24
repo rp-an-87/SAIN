@@ -50,11 +50,13 @@ public class SAINVisionClass : BotComponentClassBase
 
             float timeMod = 1f;
             float weatherMod = 1f;
+            float denseFogFactor = 1f;
             var botController = BotManagerComponent.Instance;
             if (botController != null)
             {
                 timeMod = botController.TimeVision.TimeVisionDistanceModifier;
                 weatherMod = Mathf.Clamp(botController.WeatherVision.VisionDistanceModifier, timeSettings.VISION_WEATHER_MIN_COEF, 1f);
+                denseFogFactor = botController.WeatherVision.DenseFogFactor;
                 DateTime? dateTime = botController.TimeVision.DateTime;
                 if (dateTime != null)
                 {
@@ -69,6 +71,13 @@ public class SAINVisionClass : BotComponentClassBase
                 timeSettings.VISION_WEATHER_MIN_DIST_METERS,
                 currentVisionDistance
             );
+
+            // Season Rotator compat: dense fog goes below the weather minimums above (off unless DenseFogEnabled)
+            if (denseFogFactor < 1f)
+            {
+                float floor = Mathf.Min(timeSettings.DenseFogMinDistance, currentVisionDistanceCapped);
+                currentVisionDistanceCapped = Mathf.Max(currentVisionDistanceCapped * denseFogFactor, floor);
+            }
 
             // Applies SeenTime Modifier to the final vision Distance results
             float finalVisionDistance = currentVisionDistanceCapped * timeMod;

@@ -64,6 +64,52 @@ public class TimeSettings : SAINSettingsBase<TimeSettings>, ISAINSettings
     public float VISION_WEATHER_FOG_MAXCOEF = 0.4f;
 
     [DataMember]
+    [Name("Dense Fog Compat (Season Rotator)")]
+    [Category("Weather Vision Effects - Dense Fog")]
+    [Description(
+        "Off by default. Meant for the Season Rotator fork's fog events. The normal fog effect stops growing at a fog value of 0.018 "
+            + "and the weather minimums below keep bots at a third of their vision, so every thick fog looks the same to them. "
+            + "With this on, fog values between 'Dense Fog Starts At' and 'Dense Fog Full At' reduce vision further, "
+            + "after the minimum multiplier and minimum distance above are applied."
+    )]
+    [Advanced]
+    public bool DenseFogEnabled = false;
+
+    [DataMember]
+    [Name("Dense Fog Starts At")]
+    [Category("Weather Vision Effects - Dense Fog")]
+    [Description("Fog value (the game's weather curve, not the drawn density) where the extra dense fog effect begins.")]
+    [MinMax(0.001f, 0.2f, 10000f)]
+    [Advanced]
+    public float DenseFogStart = 0.018f;
+
+    [DataMember]
+    [Name("Dense Fog Full At")]
+    [Category("Weather Vision Effects - Dense Fog")]
+    [Description("Fog value where the extra dense fog effect is at full strength.")]
+    [MinMax(0.001f, 0.2f, 10000f)]
+    [Advanced]
+    public float DenseFogFull = 0.045f;
+
+    [DataMember]
+    [Name("Dense Fog Vision Multiplier")]
+    [Category("Weather Vision Effects - Dense Fog")]
+    [Description(
+        "Extra multiplier on bot vision distance at full dense fog, on top of everything else. 0.45 = a bot that would see 50 m sees about 22 m."
+    )]
+    [MinMax(0.05f, 1f, 1000f)]
+    [Advanced]
+    public float DenseFogCoef = 0.45f;
+
+    [DataMember]
+    [Name("Dense Fog Minimum Distance")]
+    [Category("Weather Vision Effects - Dense Fog")]
+    [Description("Dense fog never lowers a bot's vision distance below this many meters (or below its normal distance if that is shorter).")]
+    [MinMax(0f, 100f, 1000f)]
+    [Advanced]
+    public float DenseFogMinDistance = 12f;
+
+    [DataMember]
     [Name("Very Light Rain Threshold")]
     [Category("Weather Vision Effects - Rain")]
     [Description("Rain scales between 0 and 1. If the value is equal to or less than this number. It will use the multiplier below.")]
