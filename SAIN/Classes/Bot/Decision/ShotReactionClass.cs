@@ -3283,9 +3283,19 @@ public class ShotReactionClass : BotComponentClassBase
     /// A retreat at a scaled distance (duel, pressure) may find no navmesh point that far (a roof, a compound, the edge of the map). It then falls back to shorter distances
     /// (60%, 35% and 20% of it, never under 15 m) before it gives up, so a bot that wants to leave does not just stay.
     /// </summary>
+    /// <summary>Bosses and their guards (not the Goons) never relocate away from the player when BossesNeverFlee is on.</summary>
+    private bool NeverFlees
+    {
+        get
+        {
+            EForkBrainGroup group = Bot.Info.Profile.ForkGroup;
+            return GlobalSettings.Fork.BossesNeverFlee && (group == EForkBrainGroup.Boss || group == EForkBrainGroup.Follower);
+        }
+    }
+
     private bool TryStartRelocating(float? distanceOverride = null)
     {
-        if (GlobalSettings.Fork.BossesNeverFlee && Bot.Info.Profile.ForkGroup == EForkBrainGroup.Boss)
+        if (NeverFlees)
         {
             return false;
         }
@@ -5270,7 +5280,7 @@ public class ShotReactionClass : BotComponentClassBase
     {
         ForkSettings fork = GlobalSettings.Fork;
         if (!fork.ShotDuelRetreatEnabled || now < _nextDuelCheck || !Enabled
-            || (fork.BossesNeverFlee && Bot.Info.Profile.ForkGroup == EForkBrainGroup.Boss))
+            || NeverFlees)
         {
             return;
         }
